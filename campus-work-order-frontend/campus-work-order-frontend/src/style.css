@@ -1,0 +1,58 @@
+* {
+  box-sizing: border-box;
+}
+
+:root {
+  --anu-blue: #0057a8;
+  --anu-blue-dark: #003f78;
+  --anu-gold: #d6a72c;
+  --el-color-primary: #0057a8;
+  --el-color-primary-light-3: #3b7fbd;
+  --el-color-primary-light-5: #78a7d1;
+  --el-color-primary-light-7: #b4cde4;
+  --el-color-primary-light-9: #edf4fa;
+  --el-color-primary-dark-2: #004586;
+}
+
+body {
+  margin: 0;
+  height: 100vh;
+  overflow: hidden;
+  font-family: Arial, "Microsoft YaHei", sans-serif;
+  background: linear-gradient(180deg, #f3f7fb 0%, #f8fafc 100%);
+  color: #303133;
+}
+
+html,
+#app {
+  height: 100%;
+  overflow: hidden;
+}
+
+.page-card {
+  background: #fff;
+  padding: 20px;
+  border-radius: 10px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+}
+
+.page-card > .el-table {
+  min-height: 0;
+  flex: 1;
+}
+
+.page-title {
+  font-size: 22px;
+  font-weight: 700;
+  margin-bottom: 18px;
+}
+
+.toolbar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.status-tag {
+  font-weight: 600;
+}
