@@ -50,3 +50,13 @@ docker compose down -v
 4. 构建前后端容器镜像；
 5. 上传后端 JAR 和前端 `dist` 构建产物。
 
+### 生产部署配置
+
+生产服务器需要预先安装 Git、Docker 和 Docker Compose，并克隆本仓库、配置好 `.env`。在 GitHub 仓库的 `Settings → Secrets and variables → Actions` 中配置：
+
+- `DEPLOY_HOST`：服务器地址；
+- `DEPLOY_USER`：SSH 用户；
+- `DEPLOY_SSH_KEY`：SSH 私钥；
+- `DEPLOY_PATH`：服务器中的项目绝对路径。
+
+然后进入 GitHub 的 `Actions → Build and Verify → Run workflow`，勾选部署选项。流水线在所有构建和测试通过后，调用 `scripts/deploy.sh` 完成生产部署。
