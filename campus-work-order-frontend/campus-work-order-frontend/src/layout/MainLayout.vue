@@ -27,6 +27,9 @@
 
         <template v-if="userStore.role === 'STUDENT'">
           <el-menu-item index="/student/create-order">新建工单</el-menu-item>
+        </template>
+
+        <template v-if="userStore.role === 'STUDENT' || userStore.role === 'WORKER'">
           <el-menu-item index="/student/my-orders">我的工单</el-menu-item>
         </template>
 
@@ -132,13 +135,20 @@
     <el-dialog
       v-model="avatarDialog"
       title="头像预览"
-      width="320px"
+      width="420px"
       align-center
+      :close-on-click-modal="true"
+      class="avatar-preview-dialog"
     >
-      <div class="avatar-preview">
-        <img
+      <div class="avatar-preview-wrap">
+        <el-image
           v-if="userStore.avatarUrl"
           :src="userStore.avatarUrl"
+          :preview-src-list="[userStore.avatarUrl]"
+          fit="cover"
+          class="avatar-preview-image"
+          preview-teleported
+          hide-on-click-modal
         />
         <div v-else class="no-avatar">
           暂无头像
@@ -490,19 +500,20 @@ async function logout() {
 }
 
 /* 弹窗头像 */
-.avatar-preview {
+.avatar-preview-wrap {
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 10px;
+  padding: 8px 0 4px;
 }
 
-.avatar-preview img {
-  width: 220px;
-  height: 220px;
-  border-radius: 50%;
-  object-fit: cover;
-  border: 3px solid #409eff;
+.avatar-preview-image {
+  width: 240px;
+  height: 240px;
+  border-radius: 18px;
+  overflow: hidden;
+  cursor: zoom-in;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
 }
 
 .no-avatar {

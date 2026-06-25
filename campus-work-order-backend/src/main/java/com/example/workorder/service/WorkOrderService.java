@@ -34,6 +34,8 @@ public interface WorkOrderService {
 
     void batchAccept(List<Long> ids);
 
+    void workerReject(Long id, RejectWorkOrderRequest request);
+
     void finish(Long id, FinishWorkOrderRequest request);
 
     void cancel(Long id);
@@ -50,5 +52,5 @@ public interface WorkOrderService {
 
     PageResult<WorkOrder> pageQuery(int pageNum, int pageSize, String orderNo, String title,
                                     String location, String category, String priority, String status,
-                                    LocalDateTime startTime, LocalDateTime endTime);
+                                    String assignState, LocalDateTime startTime, LocalDateTime endTime);
 }

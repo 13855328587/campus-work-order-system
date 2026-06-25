@@ -68,6 +68,7 @@
                 <el-select
                   v-model="form.priority"
                   placeholder="请选择优先级"
+                  clearable
                   style="width: 100%"
                 >
                   <el-option label="低" value="LOW" />
@@ -86,13 +87,15 @@
                   accept="image/jpeg,image/png,image/gif,image/webp"
                   :http-request="handleImageUpload"
                   :before-upload="beforeImageUpload"
+                  :on-success="handleImageSuccess"
+                  :on-preview="handleImagePreview"
                   :on-remove="handleImageRemove"
                   :on-exceed="handleExceed"
                   :limit="5"
                 >
                   <span class="upload-plus">+</span>
                   <template #tip>
-                    <div class="upload-tip">最多 5 张，支持 JPG、PNG、GIF、WEBP，单张不超过 5MB</div>
+                    <div class="upload-tip">最多 5 张，支持 JPG、PNG、GIF、WEBP，单张不超过 5MB；上传后点击缩略图可预览</div>
                   </template>
                 </el-upload>
               </el-form-item>
@@ -163,11 +166,33 @@
         </el-col>
       </el-row>
     </div>
+
+    <el-dialog
+      v-model="previewDialog"
+      title="图片预览"
+      width="720px"
+      :close-on-click-modal="true"
+    >
+      <div class="preview-wrap">
+        <el-image
+          v-if="previewUrl"
+          :src="previewUrl"
+          :preview-src-list="imageUrls"
+          fit="contain"
+          class="preview-image"
+          preview-teleported
+          hide-on-click-modal
+        />
+      </div>
+      <template #footer>
+        <el-button @click="previewDialog = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { reactive, ref } from 'vue'
+import { nextTick, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { createWorkOrder } from '../../api/workOrder'
 import { uploadWorkOrderImage } from '../../api/file'
@@ -176,16 +201,19 @@ const formRef = ref(null)
 const uploadRef = ref(null)
 const uploadFileList = ref([])
 const imageUrls = ref([])
+const imageUrlMap = ref(new Map())
 const uploadingCount = ref(0)
 const submitting = ref(false)
 const idempotencyKey = ref(crypto.randomUUID())
+const previewDialog = ref(false)
+const previewUrl = ref('')
 
 const form = reactive({
   title: '',
   description: '',
   location: '',
   category: '',
-  priority: 'MEDIUM'
+  priority: ''
 })
 
 const rules = {
@@ -218,6 +246,8 @@ async function submit() {
     return
   }
 
+  const currentImageUrls = getCurrentImageUrls()
+
   submitting.value = true
   try {
     await createWorkOrder({
@@ -226,7 +256,7 @@ async function submit() {
       location: form.location.trim(),
       category: form.category,
       priority: form.priority,
-      imageUrls: imageUrls.value
+      imageUrls: currentImageUrls
     }, idempotencyKey.value)
 
     ElMessage.success('工单提交成功')
@@ -237,19 +267,23 @@ async function submit() {
 }
 
 function reset() {
+  formRef.value?.resetFields()
   form.title = ''
   form.description = ''
   form.location = ''
   form.category = ''
-  form.priority = 'MEDIUM'
+  form.priority = ''
   imageUrls.value = []
+  imageUrlMap.value.clear()
   uploadFileList.value = []
+  previewDialog.value = false
+  previewUrl.value = ''
   uploadRef.value?.clearFiles()
   idempotencyKey.value = crypto.randomUUID()
 
-  if (formRef.value) {
-    formRef.value.clearValidate()
-  }
+  nextTick(() => {
+    formRef.value?.clearValidate()
+  })
 }
 
 function beforeImageUpload(file) {
@@ -269,8 +303,9 @@ async function handleImageUpload(options) {
   uploadingCount.value++
   try {
     const url = await uploadWorkOrderImage(options.file)
-    imageUrls.value.push(url)
-    options.onSuccess(url)
+    bindImageUrl(options.file, url)
+    formRef.value?.clearValidate(['category', 'priority'])
+    options.onSuccess(url, options.file)
   } catch (error) {
     options.onError(error)
   } finally {
@@ -278,14 +313,59 @@ async function handleImageUpload(options) {
   }
 }
 
+function handleImageSuccess(response, file) {
+  const url = typeof response === 'string' ? response : response?.url
+  if (!url) return
+
+  bindImageUrl(file, url)
+}
+
 function handleImageRemove(file) {
-  const url = typeof file.response === 'string' ? file.response : file.url
+  const uid = getFileUid(file)
+  const url = imageUrlMap.value.get(uid) || (typeof file.response === 'string' ? file.response : file.url)
+  imageUrlMap.value.delete(uid)
   const index = imageUrls.value.indexOf(url)
   if (index >= 0) imageUrls.value.splice(index, 1)
 }
 
+function handleImagePreview(file) {
+  const url = imageUrlMap.value.get(getFileUid(file)) || (typeof file.response === 'string' ? file.response : file.url)
+  if (!url) {
+    ElMessage.warning('图片还在上传中，请稍后预览')
+    return
+  }
+  previewUrl.value = url
+  previewDialog.value = true
+}
+
 function handleExceed() {
   ElMessage.warning('工单图片最多上传 5 张')
+}
+
+function getFileUid(file) {
+  return file?.uid || file?.raw?.uid || file?.name
+}
+
+function bindImageUrl(file, url) {
+  const uid = getFileUid(file)
+  if (!uid || !url) return
+
+  imageUrlMap.value.set(uid, url)
+
+  const currentFile = uploadFileList.value.find(item => getFileUid(item) === uid)
+  if (currentFile) {
+    currentFile.url = url
+    currentFile.response = url
+    currentFile.status = 'success'
+  }
+
+  imageUrls.value = getCurrentImageUrls()
+}
+
+function getCurrentImageUrls() {
+  return uploadFileList.value
+    .map(file => imageUrlMap.value.get(getFileUid(file)) || (typeof file.response === 'string' ? file.response : file.url))
+    .filter(Boolean)
 }
 </script>
 
@@ -334,6 +414,22 @@ function handleExceed() {
 .upload-tip {
   color: #909399;
   font-size: 12px;
+}
+
+.preview-wrap {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 320px;
+}
+
+.preview-image {
+  width: 100%;
+  max-height: 520px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #f8fafc;
+  cursor: zoom-in;
 }
 
 .side-panel {
@@ -447,6 +543,14 @@ function handleExceed() {
 :deep(.el-upload-list--picture-card .el-upload-list__item) {
   width: 82px;
   height: 82px;
+}
+
+:deep(.el-upload-list--picture-card .el-upload-list__item-name) {
+  display: none;
+}
+
+:deep(.el-upload-list--picture-card .el-upload-list__item-thumbnail) {
+  object-fit: cover;
 }
 
 .status-title {

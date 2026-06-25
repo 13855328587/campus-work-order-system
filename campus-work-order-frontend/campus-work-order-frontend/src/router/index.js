@@ -15,7 +15,7 @@ const routes = [
       { path: 'profile', component: () => import('../views/Profile.vue'), meta: { title: '用户信息' } },
 
       { path: 'student/create-order', component: () => import('../views/student/CreateOrder.vue'), meta: { title: '新建工单', roles: ['STUDENT'] } },
-      { path: 'student/my-orders', component: () => import('../views/student/MyOrders.vue'), meta: { title: '我的工单', roles: ['STUDENT'] } },
+      { path: 'student/my-orders', component: () => import('../views/student/MyOrders.vue'), meta: { title: '我的工单', roles: ['STUDENT', 'WORKER'] } },
 
       { path: 'admin/orders', component: () => import('../views/admin/OrderManage.vue'), meta: { title: '工单管理', roles: ['ADMIN', 'SUPER_ADMIN'] } },
       { path: 'admin/users', component: () => import('../views/admin/UserManage.vue'), meta: { title: '用户管理', roles: ['ADMIN', 'SUPER_ADMIN'] } },

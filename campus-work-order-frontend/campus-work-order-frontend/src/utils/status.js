@@ -3,6 +3,7 @@ export function statusText(status) {
     PENDING_REVIEW: '待审核',
     REJECTED: '已驳回',
     PENDING_PROCESS: '待处理',
+    WORKER_REJECTED: '被拒绝',
     PROCESSING: '处理中',
     COMPLETED: '已完成',
     CANCELLED: '已取消'
@@ -15,6 +16,7 @@ export function statusType(status) {
     PENDING_REVIEW: 'warning',
     REJECTED: 'danger',
     PENDING_PROCESS: 'primary',
+    WORKER_REJECTED: 'danger',
     PROCESSING: 'success',
     COMPLETED: 'info',
     CANCELLED: 'info'
@@ -40,4 +42,14 @@ export function categoryText(category) {
     OTHER: '其他问题'
   }
   return map[category] || category || '未分类'
+}
+
+export function priorityText(priority) {
+  const map = {
+    LOW: '低',
+    MEDIUM: '中',
+    HIGH: '高',
+    URGENT: '紧急'
+  }
+  return map[priority] || priority || '未设置'
 }

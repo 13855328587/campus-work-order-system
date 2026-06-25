@@ -34,6 +34,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -151,8 +152,10 @@ public class WorkOrderServiceImpl implements WorkOrderService {
         if (UserRole.STUDENT.name().equals(role) && !order.getCreatorId().equals(userId)) {
             throw new BusinessException(403, "只能查看自己的工单");
         }
-        if (UserRole.WORKER.name().equals(role) && order.getHandlerId() != null && !order.getHandlerId().equals(userId)) {
-            throw new BusinessException(403, "只能查看分配给自己的工单");
+        if (UserRole.WORKER.name().equals(role)
+                && !order.getCreatorId().equals(userId)
+                && (order.getHandlerId() == null || !order.getHandlerId().equals(userId))) {
+            throw new BusinessException(403, "只能查看自己提交或分配给自己的工单");
         }
 
         return toVO(order);
@@ -194,17 +197,21 @@ public class WorkOrderServiceImpl implements WorkOrderService {
         WorkOrder order = getOrder(id);
         checkStatus(order, WorkOrderStatus.PENDING_REVIEW);
         String before = order.getStatus();
+        String rejectReason = request.getRejectReason().trim();
         order.setStatus(WorkOrderStatus.REJECTED.name());
-        order.setRejectReason(request.getRejectReason());
+        order.setRejectReason(rejectReason);
         updateOrderOrThrow(order);
-        saveLog(SecurityUtils.getUserId(), id, "REJECT", before, order.getStatus(), request.getRejectReason());
+        saveLog(SecurityUtils.getUserId(), id, "REJECT", before, order.getStatus(), rejectReason);
     }
 
     @Override
     @Transactional
     public void assign(Long id, AssignWorkOrderRequest request) {
         WorkOrder order = getOrder(id);
-        checkStatus(order, WorkOrderStatus.PENDING_PROCESS);
+        if (!WorkOrderStatus.PENDING_PROCESS.name().equals(order.getStatus())
+                && !WorkOrderStatus.WORKER_REJECTED.name().equals(order.getStatus())) {
+            throw new BusinessException(409, "当前工单状态不允许分配");
+        }
 
         // 分配时再次校验角色和启用状态，防止绕过下拉列表提交禁用员工 ID。
         SysUser worker = sysUserMapper.selectById(request.getHandlerId());
@@ -213,9 +220,12 @@ public class WorkOrderServiceImpl implements WorkOrderService {
             throw new BusinessException("维修人员不存在或已被禁用");
         }
 
+        String before = order.getStatus();
         order.setHandlerId(request.getHandlerId());
+        order.setStatus(WorkOrderStatus.PENDING_PROCESS.name());
+        order.setRejectReason(null);
         updateOrderOrThrow(order);
-        saveLog(SecurityUtils.getUserId(), id, "ASSIGN", order.getStatus(), order.getStatus(), "分配维修人员：" + request.getHandlerId());
+        saveLog(SecurityUtils.getUserId(), id, "ASSIGN", before, order.getStatus(), "分配维修人员：" + request.getHandlerId());
     }
 
     @Override
@@ -265,6 +275,29 @@ public class WorkOrderServiceImpl implements WorkOrderService {
 
     @Override
     @Transactional
+    public void workerReject(Long id, RejectWorkOrderRequest request) {
+        WorkOrder order = getOrder(id);
+        checkStatus(order, WorkOrderStatus.PENDING_PROCESS);
+
+        Long userId = SecurityUtils.getUserId();
+        if (order.getHandlerId() != null && !order.getHandlerId().equals(userId)) {
+            throw new BusinessException(403, "只能拒绝分配给自己的工单");
+        }
+
+        String before = order.getStatus();
+        String rejectReason = request.getRejectReason().trim();
+        // 未指定维修人员的待处理工单被当前维修人员拒绝时，记录当前维修人员，
+        // 这样管理员端和工人端都能追踪是谁拒绝了该工单。
+        order.setHandlerId(userId);
+        order.setStatus(WorkOrderStatus.WORKER_REJECTED.name());
+        order.setRejectReason(rejectReason);
+
+        updateOrderOrThrow(order);
+        saveLog(userId, id, "WORKER_REJECT", before, order.getStatus(), rejectReason);
+    }
+
+    @Override
+    @Transactional
     public void finish(Long id, FinishWorkOrderRequest request) {
         WorkOrder order = getOrder(id);
         checkStatus(order, WorkOrderStatus.PROCESSING);
@@ -294,7 +327,8 @@ public class WorkOrderServiceImpl implements WorkOrderService {
         }
 
         if (!WorkOrderStatus.PENDING_REVIEW.name().equals(order.getStatus())
-                && !WorkOrderStatus.PENDING_PROCESS.name().equals(order.getStatus())) {
+                && !WorkOrderStatus.PENDING_PROCESS.name().equals(order.getStatus())
+                && !WorkOrderStatus.WORKER_REJECTED.name().equals(order.getStatus())) {
             throw new BusinessException("当前状态不能取消");
         }
 
@@ -325,7 +359,16 @@ public class WorkOrderServiceImpl implements WorkOrderService {
     @Override
     public Map<String, Long> statistics() {
         List<WorkOrder> orders = workOrderMapper.selectList(null);
-        return orders.stream().collect(Collectors.groupingBy(WorkOrder::getStatus, Collectors.counting()));
+        Map<String, Long> result = new HashMap<>(
+                orders.stream().collect(Collectors.groupingBy(WorkOrder::getStatus, Collectors.counting()))
+        );
+        LocalDate today = LocalDate.now();
+        long todayNew = orders.stream()
+                .filter(order -> order.getCreatedAt() != null && order.getCreatedAt().toLocalDate().equals(today))
+                .count();
+        result.put("TODAY_NEW", todayNew);
+        result.put("TOTAL", (long) orders.size());
+        return result;
     }
 
     @Override
@@ -354,7 +397,12 @@ public class WorkOrderServiceImpl implements WorkOrderService {
                         .or()
                         .isNull(WorkOrder::getHandlerId)
                 )
-                .in(WorkOrder::getStatus,
+                .and(WorkOrderStatus.WORKER_REJECTED.name().equals(status),
+                        wrapper -> wrapper
+                                .eq(WorkOrder::getStatus, WorkOrderStatus.WORKER_REJECTED.name())
+                                .or(w -> w.eq(WorkOrder::getStatus, WorkOrderStatus.CANCELLED.name())
+                                        .isNotNull(WorkOrder::getRejectReason)))
+                .in(!WorkOrderStatus.WORKER_REJECTED.name().equals(status), WorkOrder::getStatus,
                         WorkOrderStatus.PENDING_PROCESS.name(),
                         WorkOrderStatus.PROCESSING.name())
                 .like(StringUtils.hasText(orderNo), WorkOrder::getOrderNo, orderNo)
@@ -362,7 +410,8 @@ public class WorkOrderServiceImpl implements WorkOrderService {
                 .like(StringUtils.hasText(location), WorkOrder::getLocation, location)
                 .eq(StringUtils.hasText(category), WorkOrder::getCategory, category)
                 .eq(StringUtils.hasText(priority), WorkOrder::getPriority, priority)
-                .eq(StringUtils.hasText(status), WorkOrder::getStatus, status)
+                .eq(StringUtils.hasText(status) && !WorkOrderStatus.WORKER_REJECTED.name().equals(status),
+                        WorkOrder::getStatus, status)
                 .ge(startTime != null, WorkOrder::getCreatedAt, startTime)
                 .le(endTime != null, WorkOrder::getCreatedAt, endTime)
                 .orderByDesc(WorkOrder::getCreatedAt);
@@ -398,6 +447,7 @@ public class WorkOrderServiceImpl implements WorkOrderService {
             String category,
             String priority,
             String status,
+            String assignState,
             LocalDateTime startTime,
             LocalDateTime endTime
     ) {
@@ -416,6 +466,8 @@ public class WorkOrderServiceImpl implements WorkOrderService {
                 .eq(StringUtils.hasText(category), WorkOrder::getCategory, category)
                 .eq(StringUtils.hasText(priority), WorkOrder::getPriority, priority)
                 .eq(StringUtils.hasText(status), WorkOrder::getStatus, status)
+                .isNull("UNASSIGNED".equals(assignState), WorkOrder::getHandlerId)
+                .isNotNull("ASSIGNED".equals(assignState), WorkOrder::getHandlerId)
                 .ge(startTime != null, WorkOrder::getCreatedAt, startTime)
                 .le(endTime != null, WorkOrder::getCreatedAt, endTime)
                 .orderByDesc(WorkOrder::getCreatedAt)

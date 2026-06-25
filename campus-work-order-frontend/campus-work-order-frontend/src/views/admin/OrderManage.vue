@@ -59,16 +59,18 @@
       </div>
 
       <el-tabs
-        v-model="searchForm.status"
+        v-model="activeStatusTab"
         class="status-tabs"
         @tab-change="handleStatusChange"
       >
+        <el-tab-pane label="全部" name="ALL" />
         <el-tab-pane label="待审核" name="PENDING_REVIEW" />
-        <el-tab-pane label="待处理" name="PENDING_PROCESS" />
+        <el-tab-pane label="待分配" name="PENDING_PROCESS_UNASSIGNED" />
+        <el-tab-pane label="待处理" name="PENDING_PROCESS_ASSIGNED" />
         <el-tab-pane label="处理中" name="PROCESSING" />
         <el-tab-pane label="已完成" name="COMPLETED" />
         <el-tab-pane label="已驳回" name="REJECTED" />
-        <el-tab-pane label="已取消" name="CANCELLED" />
+        <el-tab-pane label="被拒绝" name="WORKER_REJECTED" />
       </el-tabs>
 
       <div class="table-header">
@@ -90,7 +92,7 @@
       </div>
 
       <div class="batch-toolbar">
-        <template v-if="searchForm.status === 'PENDING_REVIEW'">
+        <template v-if="activeStatusTab === 'PENDING_REVIEW'">
           <span class="batch-tip">已选 {{ selectedRows.length }} 项</span>
           <el-button
             type="success"
@@ -111,7 +113,7 @@
         border
         stripe
         height="100%"
-        :class="{ 'hide-selection-column': searchForm.status !== 'PENDING_REVIEW' }"
+        :class="{ 'hide-selection-column': activeStatusTab !== 'PENDING_REVIEW' }"
         @selection-change="handleSelectionChange"
       >
 
@@ -127,12 +129,14 @@
         <el-table-column label="类别" width="110">
           <template #default="{ row }">{{ categoryText(row.category) }}</template>
         </el-table-column>
-        <el-table-column prop="priority" label="优先级" width="100" />
+        <el-table-column label="优先级" width="100">
+          <template #default="{ row }">{{ priorityText(row.priority) }}</template>
+        </el-table-column>
 
         <el-table-column label="状态" width="120">
           <template #default="{ row }">
             <el-tag :type="statusType(row.status)">
-              {{ statusText(row.status) }}
+              {{ adminStatusText(row) }}
             </el-tag>
           </template>
         </el-table-column>
@@ -171,12 +175,12 @@
             </el-button>
 
             <el-button
-              v-if="row.status === 'PENDING_PROCESS'"
+              v-if="canAssignOrder(row)"
               size="small"
               type="primary"
               @click="openAssign(row)"
             >
-              分配
+              {{ row.status === 'WORKER_REJECTED' ? '重新分配' : '分配' }}
             </el-button>
 
           </template>
@@ -217,7 +221,7 @@
         </el-descriptions-item>
 
         <el-descriptions-item label="优先级">
-          {{ currentOrder.priority }}
+          {{ priorityText(currentOrder.priority) }}
         </el-descriptions-item>
 
         <el-descriptions-item label="地点">
@@ -258,9 +262,12 @@
           </div>
         </el-descriptions-item>
 
-        <el-descriptions-item label="驳回原因" :span="2">
+        <el-descriptions-item
+          :label="currentOrder.status === 'WORKER_REJECTED' ? '拒绝原因' : '驳回原因'"
+          :span="2"
+        >
           <div class="detail-scroll-text">
-            {{ currentOrder.rejectReason || '暂无驳回原因' }}
+            {{ currentOrder.rejectReason || (currentOrder.status === 'WORKER_REJECTED' ? '暂无拒绝原因' : '暂无驳回原因') }}
           </div>
         </el-descriptions-item>
       </el-descriptions>
@@ -271,7 +278,11 @@
     </el-dialog>
 
     <!-- 分配弹窗 -->
-    <el-dialog v-model="assignDialog" title="分配维修人员" width="420px">
+    <el-dialog
+      v-model="assignDialog"
+      :title="currentOrder?.status === 'WORKER_REJECTED' ? '重新分配维修人员' : '分配维修人员'"
+      width="420px"
+    >
 
       <el-form label-width="110px">
 
@@ -322,13 +333,14 @@ import {
 } from '../../api/workOrder'
 
 import { getWorkers } from '../../api/user'
-import { categoryText, statusText, statusType } from '../../utils/status'
+import { categoryText, priorityText, statusText, statusType } from '../../utils/status'
 
 /* 数据 */
 const orders = ref([])
 const workers = ref([])
 const selectedRows = ref([])
 const loading = ref(false)
+const activeStatusTab = ref('PENDING_REVIEW')
 
 /* 分页 */
 const page = reactive({
@@ -353,10 +365,37 @@ const searchForm = reactive({
   location: '',
   category: '',
   priority: '',
-  status: 'PENDING_REVIEW',
   startTime: '',
   endTime: ''
 })
+
+function resolveStatusFilter() {
+  if (activeStatusTab.value === 'ALL') {
+    return {
+      status: '',
+      assignState: ''
+    }
+  }
+
+  if (activeStatusTab.value === 'PENDING_PROCESS_UNASSIGNED') {
+    return {
+      status: 'PENDING_PROCESS',
+      assignState: 'UNASSIGNED'
+    }
+  }
+
+  if (activeStatusTab.value === 'PENDING_PROCESS_ASSIGNED') {
+    return {
+      status: 'PENDING_PROCESS',
+      assignState: 'ASSIGNED'
+    }
+  }
+
+  return {
+    status: activeStatusTab.value,
+    assignState: ''
+  }
+}
 
 /* 加载数据（核心） */
 async function loadData() {
@@ -367,7 +406,8 @@ async function loadData() {
     const res = await getOrderPage({
       pageNum: page.pageNum,
       pageSize: page.pageSize,
-      ...searchForm
+      ...searchForm,
+      ...resolveStatusFilter()
     })
 
     orders.value = [...res.list].sort((a, b) => {
@@ -400,10 +440,10 @@ function resetSearch() {
     location: '',
     category: '',
     priority: '',
-    status: 'PENDING_REVIEW',
     startTime: '',
     endTime: ''
   })
+  activeStatusTab.value = 'PENDING_REVIEW'
 
   handleSearch()
 }
@@ -428,11 +468,16 @@ async function loadWorkers() {
 /* 分配 */
 function openAssign(row) {
   currentOrder.value = row
-  assignForm.handlerId = row.handlerId || ''
+  assignForm.handlerId = row.status === 'WORKER_REJECTED' ? '' : (row.handlerId || '')
   assignDialog.value = true
 }
 
 async function submitAssign() {
+  if (!assignForm.handlerId) {
+    ElMessage.warning('请选择维修人员')
+    return
+  }
+
   await assignWorkOrder(currentOrder.value.id, {
     handlerId: assignForm.handlerId
   })
@@ -456,6 +501,17 @@ function canSelectOrder(row) {
 
 function handleSelectionChange(rows) {
   selectedRows.value = rows.filter(canSelectOrder)
+}
+
+function adminStatusText(row) {
+  if (row.status === 'PENDING_PROCESS') {
+    return row.handlerId ? '待处理' : '待分配'
+  }
+  return statusText(row.status)
+}
+
+function canAssignOrder(row) {
+  return (row.status === 'PENDING_PROCESS' && !row.handlerId) || row.status === 'WORKER_REJECTED'
 }
 
 async function batchApprove() {

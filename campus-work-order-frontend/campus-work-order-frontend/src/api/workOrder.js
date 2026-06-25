@@ -44,6 +44,10 @@ export function batchAcceptWorkOrder(ids) {
   return request.post('/api/work-orders/batch/accept', { ids })
 }
 
+export function workerRejectWorkOrder(id, data) {
+  return request.post(`/api/work-orders/${id}/worker/reject`, data)
+}
+
 export function finishWorkOrder(id, data) {
   return request.post(`/api/work-orders/${id}/finish`, data)
 }

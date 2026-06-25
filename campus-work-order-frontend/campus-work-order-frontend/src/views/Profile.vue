@@ -42,6 +42,18 @@
               </div>
             </el-upload>
 
+            <div class="avatar-actions">
+              <el-button
+                v-if="userStore.avatarUrl"
+                size="small"
+                plain
+                @click="avatarPreviewDialog = true"
+              >
+                查看头像
+              </el-button>
+              <span v-else class="avatar-empty-tip">暂无头像</span>
+            </div>
+
             <div class="name">
               {{ userStore.realName || userStore.username }}
             </div>
@@ -182,6 +194,30 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <el-dialog
+      v-model="avatarPreviewDialog"
+      title="头像预览"
+      width="420px"
+      :close-on-click-modal="true"
+      class="avatar-preview-dialog"
+    >
+      <div class="avatar-preview-wrap">
+        <el-image
+          v-if="userStore.avatarUrl"
+          :src="userStore.avatarUrl"
+          :preview-src-list="[userStore.avatarUrl]"
+          fit="cover"
+          class="avatar-preview-image"
+          preview-teleported
+          hide-on-click-modal
+        />
+      </div>
+
+      <template #footer>
+        <el-button @click="avatarPreviewDialog = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -199,6 +235,7 @@ const uploading = ref(false)
 const savingProfile = ref(false)
 const savingPassword = ref(false)
 const passwordDialog = ref(false)
+const avatarPreviewDialog = ref(false)
 const profileFormRef = ref(null)
 const passwordFormRef = ref(null)
 
@@ -475,6 +512,34 @@ async function submitPassword() {
 .avatar:hover .avatar-mask,
 .avatar.is-uploading .avatar-mask {
   opacity: 1;
+}
+
+.avatar-actions {
+  margin-top: 10px;
+  min-height: 24px;
+  display: flex;
+  justify-content: center;
+}
+
+.avatar-empty-tip {
+  color: #9ca3af;
+  font-size: 12px;
+}
+
+.avatar-preview-wrap {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 8px 0 4px;
+}
+
+.avatar-preview-image {
+  width: 240px;
+  height: 240px;
+  border-radius: 18px;
+  overflow: hidden;
+  cursor: zoom-in;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
 }
 
 .name {

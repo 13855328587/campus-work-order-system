@@ -95,6 +95,7 @@
         <el-tab-pane label="处理中" name="PROCESSING" />
         <el-tab-pane label="已完成" name="COMPLETED" />
         <el-tab-pane label="已驳回" name="REJECTED" />
+        <el-tab-pane label="被拒绝" name="WORKER_REJECTED" />
         <el-tab-pane label="已取消" name="CANCELLED" />
       </el-tabs>
 
@@ -151,12 +152,36 @@
           label="工单编号"
           width="170"
         />
-        <el-table-column prop="title" label="标题" min-width="180" show-overflow-tooltip />
-        <el-table-column prop="location" label="地点" min-width="170" show-overflow-tooltip />
+        <el-table-column label="标题" min-width="180">
+          <template #default="{ row }">
+            <el-tooltip
+              :content="row.title || '暂无'"
+              placement="top"
+              :show-after="300"
+              popper-class="full-text-tooltip"
+            >
+              <span class="table-ellipsis">{{ row.title || '暂无' }}</span>
+            </el-tooltip>
+          </template>
+        </el-table-column>
+        <el-table-column label="地点" min-width="170">
+          <template #default="{ row }">
+            <el-tooltip
+              :content="row.location || '暂无'"
+              placement="top"
+              :show-after="300"
+              popper-class="full-text-tooltip"
+            >
+              <span class="table-ellipsis">{{ row.location || '暂无' }}</span>
+            </el-tooltip>
+          </template>
+        </el-table-column>
         <el-table-column label="类别" width="110">
           <template #default="{ row }">{{ categoryText(row.category) }}</template>
         </el-table-column>
-        <el-table-column prop="priority" label="优先级" width="100" />
+        <el-table-column label="优先级" width="100">
+          <template #default="{ row }">{{ priorityText(row.priority) }}</template>
+        </el-table-column>
 
         <el-table-column label="状态" width="120">
           <template #default="{ row }">
@@ -180,7 +205,7 @@
             </el-button>
 
             <el-button
-              v-if="row.status === 'PENDING_REVIEW' || row.status === 'PENDING_PROCESS'"
+              v-if="canCancelOrder(row)"
               size="small"
               type="danger"
               @click="handleCancel(row.id)"
@@ -220,8 +245,8 @@
         </el-descriptions-item>
 
         <el-descriptions-item label="标题">
-          <el-tooltip :content="currentOrder.title" placement="top" :show-after="300" popper-class="detail-value-tooltip">
-            <span class="detail-single-line">{{ currentOrder.title }}</span>
+          <el-tooltip :content="currentOrder.title || '暂无'" placement="top" :show-after="300" popper-class="full-text-tooltip">
+            <span class="detail-single-line">{{ currentOrder.title || '暂无' }}</span>
           </el-tooltip>
         </el-descriptions-item>
 
@@ -230,12 +255,12 @@
         </el-descriptions-item>
 
         <el-descriptions-item label="优先级">
-          {{ currentOrder.priority }}
+          {{ priorityText(currentOrder.priority) }}
         </el-descriptions-item>
 
         <el-descriptions-item label="地点">
-          <el-tooltip :content="currentOrder.location" placement="top" :show-after="300" popper-class="detail-value-tooltip">
-            <span class="detail-single-line">{{ currentOrder.location }}</span>
+          <el-tooltip :content="currentOrder.location || '暂无'" placement="top" :show-after="300" popper-class="full-text-tooltip">
+            <span class="detail-single-line">{{ currentOrder.location || '暂无' }}</span>
           </el-tooltip>
         </el-descriptions-item>
 
@@ -271,9 +296,12 @@
           </div>
         </el-descriptions-item>
 
-        <el-descriptions-item label="驳回原因" :span="2">
+        <el-descriptions-item
+          :label="currentOrder.status === 'WORKER_REJECTED' ? '拒绝原因' : '驳回原因'"
+          :span="2"
+        >
           <div class="detail-scroll-text">
-            {{ currentOrder.rejectReason || '暂无驳回原因' }}
+            {{ currentOrder.rejectReason || (currentOrder.status === 'WORKER_REJECTED' ? '暂无拒绝原因' : '暂无驳回原因') }}
           </div>
         </el-descriptions-item>
       </el-descriptions>
@@ -290,7 +318,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import { batchCancelWorkOrder, cancelWorkOrder, getMyOrders } from '../../api/workOrder'
-import { categoryText, statusText, statusType } from '../../utils/status'
+import { categoryText, priorityText, statusText, statusType } from '../../utils/status'
 
 const orders = ref([])
 const selectedRows = ref([])
@@ -316,8 +344,8 @@ const searchForm = reactive({
 })
 
 const canBatchCancelStatus = computed(() => {
-  // 只有待审核、待处理的工单允许学生取消。
-  return searchForm.status === 'PENDING_REVIEW' || searchForm.status === 'PENDING_PROCESS'
+  // 只有待审核、待处理、被拒绝的工单允许学生取消。
+  return ['PENDING_REVIEW', 'PENDING_PROCESS', 'WORKER_REJECTED'].includes(searchForm.status)
 })
 
 async function loadData() {
@@ -403,7 +431,11 @@ async function handleCancel(id) {
 
 function canSelectOrder(row) {
   // 批量取消只能选择仍未进入处理中的工单。
-  return row.status === 'PENDING_REVIEW' || row.status === 'PENDING_PROCESS'
+  return canCancelOrder(row)
+}
+
+function canCancelOrder(row) {
+  return ['PENDING_REVIEW', 'PENDING_PROCESS', 'WORKER_REJECTED'].includes(row.status)
 }
 
 function handleSelectionChange(rows) {
@@ -563,6 +595,24 @@ onMounted(loadData)
   visibility: hidden;
 }
 
+.table-ellipsis,
+.detail-single-line {
+  display: inline-block;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+:global(.full-text-tooltip) {
+  max-width: 520px !important;
+  white-space: normal !important;
+  word-break: break-word !important;
+  line-height: 1.6;
+}
+
 .detail-text {
   line-height: 1.7;
   color: #606266;
@@ -572,8 +622,13 @@ onMounted(loadData)
 
 .detail-images {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 10px;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 6px;
 }
 
 .detail-image {
@@ -581,6 +636,7 @@ onMounted(loadData)
   height: 96px;
   border-radius: 6px;
   cursor: zoom-in;
+  flex: 0 0 96px;
 }
 
 .pagination {

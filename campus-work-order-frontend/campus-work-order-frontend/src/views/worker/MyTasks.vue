@@ -91,6 +91,7 @@
         <el-tab-pane label="待处理" name="PENDING_PROCESS" />
         <el-tab-pane label="处理中" name="PROCESSING" />
         <el-tab-pane label="已完成" name="COMPLETED" />
+        <el-tab-pane label="已拒绝" name="WORKER_REJECTED" />
       </el-tabs>
 
       <div class="table-header">
@@ -147,7 +148,9 @@
         <el-table-column label="类别" width="110">
           <template #default="{ row }">{{ categoryText(row.category) }}</template>
         </el-table-column>
-        <el-table-column prop="priority" label="优先级" width="100" />
+        <el-table-column label="优先级" width="100">
+          <template #default="{ row }">{{ priorityText(row.priority) }}</template>
+        </el-table-column>
 
         <el-table-column label="状态" width="120">
           <template #default="{ row }">
@@ -165,7 +168,7 @@
           width="180"
         />
 
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="操作" width="230" fixed="right">
           <template #default="{ row }">
             <el-button size="small" type="primary" plain @click="openDetail(row)">
               详情
@@ -178,6 +181,16 @@
               @click="accept(row.id)"
             >
               接单
+            </el-button>
+
+            <el-button
+              v-if="row.status === 'PENDING_PROCESS'"
+              size="small"
+              type="danger"
+              plain
+              @click="rejectTask(row.id)"
+            >
+              拒绝
             </el-button>
 
             <el-button
@@ -231,7 +244,7 @@
         </el-descriptions-item>
 
         <el-descriptions-item label="优先级">
-          {{ currentOrder.priority }}
+          {{ priorityText(currentOrder.priority) }}
         </el-descriptions-item>
 
         <el-descriptions-item label="地点">
@@ -272,6 +285,16 @@
           </div>
         </el-descriptions-item>
 
+        <el-descriptions-item
+          v-if="currentOrder.status === 'WORKER_REJECTED' || currentOrder.rejectReason"
+          label="拒绝原因"
+          :span="2"
+        >
+          <div class="detail-scroll-text">
+            {{ currentOrder.rejectReason || '暂无拒绝原因' }}
+          </div>
+        </el-descriptions-item>
+
         <el-descriptions-item label="完成时间" :span="2">
           {{ currentOrder.updatedAt || '暂无' }}
         </el-descriptions-item>
@@ -293,9 +316,10 @@ import {
   batchAcceptWorkOrder,
   finishWorkOrder,
   getWorkerTasks,
-  getWorkerHistory
+  getWorkerHistory,
+  workerRejectWorkOrder
 } from '../../api/workOrder'
-import { categoryText, statusText, statusType } from '../../utils/status'
+import { categoryText, priorityText, statusText, statusType } from '../../utils/status'
 
 const activeStatus = ref('PENDING_PROCESS')
 const orders = ref([])
@@ -463,6 +487,27 @@ function openDetail(row) {
 async function accept(id) {
   await acceptWorkOrder(id)
   ElMessage.success('接单成功')
+  await loadData()
+}
+
+async function rejectTask(id) {
+  const { value } = await ElMessageBox.prompt('请输入拒绝接单原因', '拒绝接单', {
+    confirmButtonText: '确定拒绝',
+    cancelButtonText: '取消',
+    inputType: 'textarea',
+    inputPlaceholder: '请说明无法接单的原因',
+    inputValidator: value => {
+      const reason = String(value || '').trim()
+      if (!reason) return '拒绝原因不能为空'
+      if (reason.length > 255) return '拒绝原因不能超过255个字符'
+      return true
+    }
+  })
+
+  await workerRejectWorkOrder(id, {
+    rejectReason: value.trim()
+  })
+  ElMessage.success('已拒绝接单')
   await loadData()
 }
 

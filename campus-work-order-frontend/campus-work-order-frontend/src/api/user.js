@@ -4,6 +4,10 @@ export function getUsers(params) {
   return request.get('/api/users/page', { params })
 }
 
+export function createUser(data) {
+  return request.post('/api/users', data)
+}
+
 export function updateUserStatus(id, status) {
   return request.put(`/api/users/${id}/status?status=${status}`)
 }

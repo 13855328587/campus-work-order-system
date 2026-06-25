@@ -129,6 +129,12 @@
               :disabled="!batchDeleteCount"
               @click="handleBatchDelete"
             >批量删除</el-button>
+            <el-button
+              type="primary"
+              plain
+              size="small"
+              @click="openCreate"
+            >新增用户</el-button>
           </div>
 
           <el-table
@@ -145,7 +151,16 @@
 
             <el-table-column label="头像" width="90" align="center">
               <template #default="{ row }">
-                <el-avatar :size="42" :src="row.avatarUrl || ''">
+                <el-image
+                  v-if="row.avatarUrl"
+                  :src="row.avatarUrl"
+                  :preview-src-list="[row.avatarUrl]"
+                  fit="cover"
+                  class="user-avatar-preview"
+                  preview-teleported
+                  hide-on-click-modal
+                />
+                <el-avatar v-else :size="42">
                   {{ getAvatarText(row) }}
                 </el-avatar>
               </template>
@@ -291,6 +306,62 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="createDialog" title="新增用户" width="480px" destroy-on-close>
+      <el-form ref="createFormRef" :model="createForm" :rules="createRules" label-width="90px">
+        <el-form-item label="用户名" prop="username">
+          <el-input
+            v-model="createForm.username"
+            maxlength="20"
+            show-word-limit
+            clearable
+            placeholder="3-20位字母、数字或下划线"
+            @input="handleCreateUsernameInput"
+          />
+        </el-form-item>
+
+        <el-form-item label="真实姓名" prop="realName">
+          <el-input
+            v-model="createForm.realName"
+            maxlength="20"
+            show-word-limit
+            clearable
+            placeholder="2-20位，中文/字母/间隔点"
+            @input="handleCreateRealNameInput"
+          />
+        </el-form-item>
+
+        <el-form-item label="手机号" prop="phone">
+          <el-input
+            v-model="createForm.phone"
+            maxlength="11"
+            clearable
+            placeholder="11位手机号，可不填写"
+            @input="handleCreatePhoneInput"
+          />
+        </el-form-item>
+
+        <el-form-item label="角色" prop="role">
+          <el-select v-model="createForm.role" style="width: 100%">
+            <el-option
+              v-for="item in createRoleOptions"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </el-select>
+        </el-form-item>
+
+        <el-form-item label="默认密码">
+          <el-input model-value="123456" disabled />
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <el-button @click="createDialog = false">取消</el-button>
+        <el-button type="primary" :loading="creating" @click="submitCreate">确定新增</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="viewDialog" title="查看用户" width="520px" destroy-on-close>
       <el-descriptions :column="2" border>
         <el-descriptions-item label="用户ID">{{ viewUser.id }}</el-descriptions-item>
@@ -325,6 +396,7 @@ import { Refresh } from '@element-plus/icons-vue'
 import {
   batchDeleteUser,
   batchResetUserPassword,
+  createUser,
   deleteUser,
   getUsers,
   resetUserPassword,
@@ -339,9 +411,12 @@ const userStore = useUserStore()
 const users = ref([])
 const selectedRows = ref([])
 const loading = ref(false)
+const createDialog = ref(false)
 const editDialog = ref(false)
 const viewDialog = ref(false)
+const createFormRef = ref(null)
 const editFormRef = ref(null)
+const creating = ref(false)
 const saving = ref(false)
 const selectedRoleKey = ref('all')
 const selectedRoleValues = ref([])
@@ -414,6 +489,13 @@ const editForm = reactive({
   oldStatus: 1
 })
 
+const createForm = reactive({
+  username: '',
+  realName: '',
+  phone: '',
+  role: ''
+})
+
 const viewUser = reactive({
   id: '',
   username: '',
@@ -424,6 +506,25 @@ const viewUser = reactive({
   createdAt: '',
   updatedAt: ''
 })
+
+const createRules = {
+  username: [
+    { required: true, whitespace: true, message: '请输入用户名', trigger: 'blur' },
+    { min: 3, max: 20, message: '用户名长度必须在3到20个字符之间', trigger: 'blur' },
+    { pattern: /^[A-Za-z0-9_]{3,20}$/, message: '用户名只能包含字母、数字和下划线', trigger: 'blur' }
+  ],
+  realName: [
+    { required: true, whitespace: true, message: '请输入真实姓名', trigger: 'blur' },
+    { min: 2, max: 20, message: '真实姓名长度必须在2到20个字符之间', trigger: 'blur' },
+    { pattern: /^[\u4e00-\u9fa5A-Za-z·]{2,20}$/, message: '真实姓名只能包含中文、字母或间隔点', trigger: 'blur' }
+  ],
+  phone: [
+    { pattern: /^$|^1\d{10}$/, message: '请输入正确的11位手机号', trigger: 'blur' }
+  ],
+  role: [
+    { required: true, message: '请选择角色', trigger: 'change' }
+  ]
+}
 
 const editRules = {
   realName: [
@@ -445,6 +546,25 @@ const currentRoleTitle = computed(() => {
 
 const batchResetCount = computed(() => selectedRows.value.filter(canResetPassword).length)
 const batchDeleteCount = computed(() => selectedRows.value.filter(canDeleteUser).length)
+
+const createRoleOptions = computed(() => {
+  if (userStore.role === 'SUPER_ADMIN') {
+    return [
+      { label: '管理员', value: 'ADMIN' },
+      { label: '维修人员', value: 'WORKER' },
+      { label: '学生', value: 'STUDENT' }
+    ]
+  }
+
+  if (userStore.role === 'ADMIN') {
+    return [
+      { label: '维修人员', value: 'WORKER' },
+      { label: '学生', value: 'STUDENT' }
+    ]
+  }
+
+  return []
+})
 
 async function loadData() {
   if (loading.value) return
@@ -509,6 +629,18 @@ function isSelf(row) {
 function getAvatarText(row) {
   const name = row.realName || row.username || '?'
   return name.trim().charAt(0).toUpperCase()
+}
+
+function handleCreateUsernameInput(value) {
+  createForm.username = value.replace(/[^A-Za-z0-9_]/g, '').slice(0, 20)
+}
+
+function handleCreateRealNameInput(value) {
+  createForm.realName = value.replace(/[^\u4e00-\u9fa5A-Za-z·]/g, '').slice(0, 20)
+}
+
+function handleCreatePhoneInput(value) {
+  createForm.phone = value.replace(/\D/g, '').slice(0, 11)
 }
 
 function handleEditRealNameInput(value) {
@@ -717,8 +849,52 @@ function openEdit(row) {
   editDialog.value = true
 }
 
+function openCreate() {
+  const defaultRole = createRoleOptions.value[0]?.value || ''
+  Object.assign(createForm, {
+    username: '',
+    realName: '',
+    phone: '',
+    role: defaultRole
+  })
+  createDialog.value = true
+}
+
+async function submitCreate() {
+  await createFormRef.value.validate()
+  creating.value = true
+  try {
+    // 管理端新增用户统一使用默认密码 123456；后端会再次校验角色权限和用户名唯一性。
+    await createUser({
+      username: createForm.username.trim(),
+      realName: createForm.realName.trim(),
+      phone: createForm.phone.trim(),
+      role: createForm.role
+    })
+    ElMessage.success('用户已新增，默认密码为 123456')
+    createDialog.value = false
+    page.pageNum = 1
+    await loadData()
+  } finally {
+    creating.value = false
+  }
+}
+
 async function submitEdit() {
   await editFormRef.value.validate()
+
+  if (editForm.oldRole === 'WORKER' && editForm.role !== 'WORKER' && canEditRole(editForm)) {
+    await ElMessageBox.confirm(
+      '该维修人员改为非维修角色后，名下待处理和处理中的工单会解除维修人员并退回待处理；已完成工单不受影响。确定继续吗？',
+      '确认修改角色',
+      {
+        confirmButtonText: '确定修改',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+  }
+
   saving.value = true
   try {
     // 修改弹窗一次提交基础信息、角色和状态；后端分别做权限校验。
@@ -868,6 +1044,16 @@ onMounted(loadData)
 
 .user-table-section :deep(.el-table__inner-wrapper) {
   min-width: 1040px;
+}
+
+.user-avatar-preview {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  cursor: zoom-in;
+  overflow: hidden;
+  vertical-align: middle;
+  box-shadow: 0 0 0 1px #e5e7eb;
 }
 
 .role-pill {

@@ -78,6 +78,27 @@
         </div>
       </div>
 
+      <div class="chart-card status-card">
+        <div class="chart-title-row">
+          <div>
+            <h4>状态分布</h4>
+            <p>覆盖审核、处理、拒绝和取消</p>
+          </div>
+        </div>
+        <div class="status-list">
+          <div v-for="item in statusData" :key="item.key" class="status-row">
+            <div class="status-meta">
+              <span class="status-dot" :style="{ background: item.color }"></span>
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+            </div>
+            <div class="status-track">
+              <div :style="{ width: `${item.percent}%`, background: item.color }"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="chart-card metric-card">
         <div class="metric-item">
           <span>今日新增</span>
@@ -106,6 +127,10 @@ const props = defineProps({
   orders: {
     type: Array,
     default: () => []
+  },
+  todayNew: {
+    type: Number,
+    default: 0
   }
 })
 
@@ -123,14 +148,32 @@ const priorityOptions = [
   { key: 'LOW', label: '低', color: '#28a879' }
 ]
 
+const statusOptions = [
+  { key: 'PENDING_REVIEW', label: '待审核', color: '#8e44ad' },
+  { key: 'PENDING_PROCESS', label: '待处理', color: '#0057a8' },
+  { key: 'PROCESSING', label: '处理中', color: '#f08c46' },
+  { key: 'COMPLETED', label: '已完成', color: '#28a879' },
+  { key: 'REJECTED', label: '已驳回', color: '#d94b5f' },
+  { key: 'WORKER_REJECTED', label: '被拒绝', color: '#c2410c' },
+  { key: 'CANCELLED', label: '已取消', color: '#667085' }
+]
+
 function localDateKey(value) {
   if (!value) return ''
-  const date = new Date(String(value).replace(' ', 'T'))
+  const raw = String(value).trim()
+  const datePart = raw.split(/[T\s]/)[0]
+  if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return datePart
+
+  const date = new Date(raw.replace(' ', 'T'))
   if (Number.isNaN(date.getTime())) return ''
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
+}
+
+function getOrderCreatedTime(order) {
+  return order?.createdAt || order?.createAt || order?.createdTime || order?.createTime
 }
 
 const trendData = computed(() => {
@@ -144,7 +187,7 @@ const trendData = computed(() => {
 
   const index = new Map(days.map(item => [item.key, item]))
   props.orders.forEach(order => {
-    const item = index.get(localDateKey(order.createdAt))
+    const item = index.get(localDateKey(getOrderCreatedTime(order)))
     if (item) item.value++
   })
 
@@ -186,9 +229,20 @@ const priorityData = computed(() => {
   })
 })
 
+const statusData = computed(() => {
+  const max = Math.max(1, ...statusOptions.map(option =>
+    props.orders.filter(order => order.status === option.key).length
+  ))
+  return statusOptions.map(option => {
+    const value = props.orders.filter(order => order.status === option.key).length
+    return { ...option, value, percent: value / max * 100 }
+  })
+})
+
 const todayCount = computed(() => {
+  if (props.todayNew > 0) return props.todayNew
   const today = localDateKey(new Date())
-  return props.orders.filter(order => localDateKey(order.createdAt) === today).length
+  return props.orders.filter(order => localDateKey(getOrderCreatedTime(order)) === today).length
 })
 
 const completionRate = computed(() => {
@@ -203,15 +257,20 @@ const importantCount = computed(() =>
 </script>
 
 <style scoped>
-.analytics-section { min-height: 0; margin-top: 10px; display: flex; flex: 1; flex-direction: column; overflow: hidden; }
+.analytics-section { min-height: 0; margin-top: 10px; display: flex; flex: 0 0 auto; flex-direction: column; overflow: visible; }
 .analytics-header { margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
 .analytics-header h3, .chart-title-row h4 { margin: 0; color: #24364b; }
 .analytics-header h3 { font-size: 18px; }
 .analytics-header p, .chart-title-row p { margin: 4px 0 0; color: #8a98aa; font-size: 12px; }
 .live-badge { padding: 6px 10px; border: 1px solid #cce8dc; border-radius: 999px; color: #18835d; font-size: 11px; font-weight: 800; letter-spacing: .08em; background: #effaf5; }
 .live-badge span { display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: #22b47b; box-shadow: 0 0 0 4px rgba(34, 180, 123, .12); }
-.analytics-grid { min-height: 0; display: grid; flex: 1; grid-template-columns: 1.6fr 1.1fr 1fr 1.1fr; gap: 10px; }
-.chart-card { min-width: 0; min-height: 0; padding: 13px; overflow: hidden; border: 1px solid #e9eff5; border-radius: 16px; background: #fff; box-shadow: 0 8px 22px rgba(0, 63, 120, .055); }
+.analytics-grid { min-height: 0; display: grid; flex: 0 0 auto; grid-template-columns: repeat(6, minmax(0, 1fr)); grid-template-rows: auto auto; gap: 10px; }
+.trend-card { grid-column: span 3; }
+.category-card { grid-column: span 3; }
+.priority-card,
+.status-card,
+.metric-card { grid-column: span 2; }
+.chart-card { min-width: 0; min-height: 210px; padding: 13px; overflow: auto; border: 1px solid #e9eff5; border-radius: 16px; background: #fff; box-shadow: 0 8px 22px rgba(0, 63, 120, .055); }
 .chart-title-row { display: flex; justify-content: space-between; align-items: flex-start; }
 .chart-title-row h4 { font-size: 16px; }
 .chart-title-row > strong { color: #0057a8; font-size: 28px; }
@@ -223,7 +282,7 @@ const importantCount = computed(() =>
 .bar-value { margin-bottom: 5px; color: #526579; font-size: 11px; font-weight: 700; }
 .trend-bar { width: min(32px, 72%); min-height: 3px; border-radius: 8px 8px 3px 3px; background: linear-gradient(180deg, #1780c8, #0057a8); box-shadow: 0 6px 12px rgba(0, 87, 168, .18); transition: height .3s ease; }
 .axis-label { margin-top: 8px; color: #7c8b9d; font-size: 11px; }
-.donut-layout { margin-top: 12px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.donut-layout { margin-top: 12px; display: flex; align-items: center; gap: 16px; }
 .donut { width: 105px; height: 105px; flex: 0 0 105px; display: grid; place-items: center; border-radius: 50%; }
 .donut-center { width: 64px; height: 64px; display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: 50%; background: #fff; box-shadow: 0 0 0 1px #edf1f5; }
 .donut-center strong { color: #183a5d; font-size: 24px; }
@@ -239,12 +298,42 @@ const importantCount = computed(() =>
 .priority-meta strong { color: #26394d; }
 .priority-track { height: 9px; overflow: hidden; border-radius: 999px; background: #edf2f6; }
 .priority-track div { height: 100%; min-width: 2px; border-radius: inherit; transition: width .3s ease; }
+.status-list { margin-top: 10px; display: flex; flex-direction: column; gap: 7px; }
+.status-row { min-width: 0; }
+.status-meta { margin-bottom: 4px; display: grid; grid-template-columns: 8px 1fr auto; gap: 7px; align-items: center; color: #607185; font-size: 12px; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; }
+.status-meta strong { color: #26394d; }
+.status-track { height: 7px; overflow: hidden; border-radius: 999px; background: #edf2f6; }
+.status-track div { height: 100%; min-width: 2px; border-radius: inherit; transition: width .3s ease; }
 .metric-card { display: grid; grid-template-columns: 1fr; gap: 4px; background: linear-gradient(135deg, #003f78, #0878c9); }
 .metric-item { padding: 8px; display: flex; flex-direction: column; border-right: 0; border-bottom: 1px solid rgba(255, 255, 255, .16); color: #fff; }
 .metric-item:last-child { border-right: 0; }
 .metric-item span { color: rgba(255, 255, 255, .72); font-size: 12px; }
 .metric-item strong { margin: 4px 0 2px; font-size: 23px; }
 .metric-item small { color: rgba(255, 255, 255, .62); font-size: 10px; }
-@media (max-width: 1180px) { .analytics-grid { grid-template-columns: 1.5fr 1fr; grid-template-rows: repeat(2, minmax(0, 1fr)); } .trend-chart { height: 125px; } .bar-area { height: 88px; } .donut-layout { flex-direction: row; } .metric-card { grid-template-columns: repeat(3, 1fr); } }
-@media (max-width: 760px) { .category-card, .priority-card { display: none; } .analytics-grid { grid-template-columns: 1.5fr 1fr; grid-template-rows: 1fr; } .metric-card { grid-template-columns: 1fr; } .metric-item small { display: none; } }
+@media (max-width: 1180px) {
+  .analytics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: auto; }
+  .trend-card,
+  .category-card,
+  .priority-card,
+  .status-card,
+  .metric-card { grid-column: span 1; }
+  .trend-chart { height: 125px; }
+  .bar-area { height: 88px; }
+  .donut-layout { flex-direction: row; }
+  .metric-card { grid-template-columns: repeat(3, 1fr); }
+}
+
+@media (max-width: 760px) {
+  .analytics-grid { grid-template-columns: 1fr; grid-template-rows: auto; }
+  .trend-card,
+  .category-card,
+  .priority-card,
+  .status-card,
+  .metric-card { grid-column: span 1; }
+  .chart-card { min-height: 190px; max-height: 280px; }
+  .donut-layout { flex-direction: row; align-items: center; }
+  .metric-card { grid-template-columns: 1fr; }
+  .metric-item small { display: none; }
+}
 </style>

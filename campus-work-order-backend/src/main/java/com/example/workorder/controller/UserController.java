@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.workorder.common.Result;
 import com.example.workorder.dto.BatchUserRequest;
+import com.example.workorder.dto.CreateUserRequest;
 import com.example.workorder.dto.UpdateUserRequest;
 import com.example.workorder.entity.PageResult;
 import com.example.workorder.entity.SysUser;
@@ -39,6 +40,33 @@ public class UserController {
     private final WorkOrderMapper workOrderMapper;
     private final PasswordEncoder passwordEncoder;
 
+    @PostMapping
+    @Transactional
+    public Result<Void> createUser(@RequestBody @Valid CreateUserRequest request) {
+        String currentRole = SecurityUtils.getRole();
+        String targetRole = request.getRole();
+
+        checkCreatePermission(currentRole, targetRole);
+
+        String username = request.getUsername().trim();
+        Long exists = sysUserMapper.selectCount(
+                new LambdaQueryWrapper<SysUser>()
+                        .eq(SysUser::getUsername, username)
+        );
+        if (exists != null && exists > 0) {
+            throw new BusinessException(400, "用户名已存在");
+        }
+
+        SysUser user = new SysUser();
+        user.setUsername(username);
+        user.setPassword(passwordEncoder.encode("123456"));
+        user.setRealName(request.getRealName().trim());
+        user.setPhone(StringUtils.hasText(request.getPhone()) ? request.getPhone().trim() : null);
+        user.setRole(targetRole);
+        user.setStatus(1);
+        sysUserMapper.insert(user);
+        return Result.success();
+    }
 
     @GetMapping("/page")
     public Result<PageResult<SysUser>> page(
@@ -308,6 +336,20 @@ public class UserController {
 
         checkRolePermission(currentRole, targetUser.getRole(), role);
 
+        // 维修人员改成非维修角色时，释放待处理/处理中工单；已完成等历史工单保持原记录。
+        if (UserRole.WORKER.name().equals(targetUser.getRole())
+                && !UserRole.WORKER.name().equals(role)) {
+            workOrderMapper.update(null,
+                    new LambdaUpdateWrapper<WorkOrder>()
+                            .eq(WorkOrder::getHandlerId, id)
+                            .in(WorkOrder::getStatus,
+                                    WorkOrderStatus.PENDING_PROCESS.name(),
+                                    WorkOrderStatus.PROCESSING.name())
+                            .set(WorkOrder::getHandlerId, null)
+                            .set(WorkOrder::getStatus, WorkOrderStatus.PENDING_PROCESS.name())
+            );
+        }
+
         SysUser user = new SysUser();
         user.setId(id);
         user.setRole(role);
@@ -357,6 +399,32 @@ public class UserController {
         }
 
         throw new BusinessException(403, "无权限修改用户角色");
+    }
+
+    private void checkCreatePermission(String currentRole, String targetRole) {
+        // 新增用户不允许创建超级管理员；超级管理员可新增管理员/维修人员/学生，管理员可新增维修人员/学生。
+        if (UserRole.SUPER_ADMIN.name().equals(targetRole)) {
+            throw new BusinessException(403, "不允许新增超级管理员");
+        }
+
+        if (UserRole.SUPER_ADMIN.name().equals(currentRole)) {
+            if (UserRole.ADMIN.name().equals(targetRole)
+                    || UserRole.WORKER.name().equals(targetRole)
+                    || UserRole.STUDENT.name().equals(targetRole)) {
+                return;
+            }
+            throw new BusinessException(400, "用户角色不正确");
+        }
+
+        if (UserRole.ADMIN.name().equals(currentRole)) {
+            if (UserRole.WORKER.name().equals(targetRole)
+                    || UserRole.STUDENT.name().equals(targetRole)) {
+                return;
+            }
+            throw new BusinessException(403, "管理员只能新增维修人员和学生");
+        }
+
+        throw new BusinessException(403, "无权限新增用户");
     }
 
     private void checkBasicInfoPermission(Long currentUserId, String currentRole, SysUser targetUser) {

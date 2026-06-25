@@ -39,6 +39,7 @@ public class WorkOrderController {
             @RequestParam(value = "category", required = false) String category,
             @RequestParam(value = "priority", required = false) String priority,
             @RequestParam(value = "status", required = false) String status,
+            @RequestParam(value = "assignState", required = false) String assignState,
             @RequestParam(value = "startTime", required = false)
             @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") LocalDateTime startTime,
             @RequestParam(value = "endTime", required = false)
@@ -47,6 +48,7 @@ public class WorkOrderController {
         return Result.success(workOrderService.pageQuery(
                 pageNum, pageSize,
                 orderNo, title, location, category, priority, status,
+                assignState,
                 startTime, endTime
         ));
     }
@@ -58,7 +60,7 @@ public class WorkOrderController {
     }
 
     @GetMapping("/my")
-    @PreAuthorize("hasRole('STUDENT')")
+    @PreAuthorize("hasAnyRole('STUDENT', 'WORKER')")
     public Result<PageResult<WorkOrderVO>> myOrders(
             @RequestParam(value = "pageNum", defaultValue = "1") int pageNum,
             @RequestParam(value = "pageSize", defaultValue = "10") int pageSize,
@@ -156,6 +158,13 @@ public class WorkOrderController {
         return Result.success();
     }
 
+    @PostMapping("/{id}/worker/reject")
+    @PreAuthorize("hasRole('WORKER')")
+    public Result<Void> workerReject(@PathVariable("id") Long id, @RequestBody @Valid RejectWorkOrderRequest request) {
+        workOrderService.workerReject(id, request);
+        return Result.success();
+    }
+
     @PostMapping("/{id}/finish")
     @PreAuthorize("hasRole('WORKER')")
     public Result<Void> finish(@PathVariable("id") Long id, @RequestBody @Valid FinishWorkOrderRequest request) {
@@ -168,14 +177,14 @@ public class WorkOrderController {
         return Result.success(workOrderService.workerHistory());
     }
     @PostMapping("/{id}/cancel")
-    @PreAuthorize("hasRole('STUDENT')")
+    @PreAuthorize("hasAnyRole('STUDENT', 'WORKER')")
     public Result<Void> cancel(@PathVariable("id") Long id) {
         workOrderService.cancel(id);
         return Result.success();
     }
 
     @PostMapping("/batch/cancel")
-    @PreAuthorize("hasRole('STUDENT')")
+    @PreAuthorize("hasAnyRole('STUDENT', 'WORKER')")
     public Result<Void> batchCancel(@RequestBody @Valid BatchWorkOrderRequest request) {
         workOrderService.batchCancel(request.getIds());
         return Result.success();

@@ -113,19 +113,30 @@
     </div>
 
     <!-- 统计卡片 -->
-    <el-row :gutter="14">
-      <el-col :span="cardSpan" v-for="item in cards" :key="item.label">
-        <el-card class="stat-card" :class="item.className">
-          <div class="stat-icon">{{ item.icon }}</div>
-          <div class="stat-info">
-            <div class="stat-value">{{ item.value }}</div>
-            <div class="stat-label">{{ item.label }}</div>
-          </div>
-        </el-card>
-      </el-col>
-    </el-row>
+    <div class="stat-grid">
+      <el-card class="stat-card purple-card">
+        <div class="stat-icon">📅</div>
+        <div class="stat-info">
+          <div class="stat-value">{{ todayNewCount }}</div>
+          <div class="stat-label">今日新增</div>
+        </div>
+      </el-card>
 
-    <DashboardCharts :orders="analyticsOrders" />
+      <el-card
+        v-for="item in cards"
+        :key="item.label"
+        class="stat-card"
+        :class="item.className"
+      >
+        <div class="stat-icon">{{ item.icon }}</div>
+        <div class="stat-info">
+          <div class="stat-value">{{ item.value }}</div>
+          <div class="stat-label">{{ item.label }}</div>
+        </div>
+      </el-card>
+    </div>
+
+    <DashboardCharts :orders="analyticsOrders" :today-new="todayNewCount" />
 
     <!-- 管理员 / 超级管理员专属内容 -->
     <template v-if="isAdminRole">
@@ -240,6 +251,10 @@
                   <span>等待审核</span>
                   <strong>{{ statistics.PENDING_REVIEW || 0 }}</strong>
                 </div>
+                <div>
+                  <span>被拒绝</span>
+                  <strong>{{ statistics.WORKER_REJECTED || 0 }}</strong>
+                </div>
               </div>
             </div>
           </div>
@@ -318,34 +333,34 @@
           <div class="page-card clean-card">
             <div class="section-header">
               <div>
-                <h3>快捷操作</h3>
-                <p>常用入口和处理提示。</p>
+                <h3>我的状态概览</h3>
+                <p>快速查看当前工单处理分布。</p>
               </div>
-              <div class="section-icon green-icon">⚡</div>
+              <div class="section-icon green-icon">📌</div>
             </div>
 
             <div class="quick-list">
-              <div class="quick-item" @click="$router.push('/student/create-order')">
-                <div class="quick-icon blue-quick">＋</div>
+              <div class="quick-item">
+                <div class="quick-icon blue-quick">审</div>
                 <div>
-                  <div class="quick-title">提交新工单</div>
-                  <div class="quick-desc">宿舍、网络、设备问题都可以在线反馈。</div>
+                  <div class="quick-title">等待审核</div>
+                  <div class="quick-desc">当前 {{ statistics.PENDING_REVIEW || 0 }} 个工单等待管理员审核。</div>
                 </div>
               </div>
 
-              <div class="quick-item" @click="$router.push('/student/my-orders')">
-                <div class="quick-icon orange-quick">查</div>
+              <div class="quick-item">
+                <div class="quick-icon orange-quick">处</div>
                 <div>
-                  <div class="quick-title">查看处理进度</div>
-                  <div class="quick-desc">查看审核、处理和完成状态。</div>
+                  <div class="quick-title">处理中</div>
+                  <div class="quick-desc">当前 {{ statistics.PROCESSING || 0 }} 个工单正在维修处理。</div>
                 </div>
               </div>
 
               <div class="quick-item">
                 <div class="quick-icon green-quick">✓</div>
                 <div>
-                  <div class="quick-title">填写清晰描述</div>
-                  <div class="quick-desc">地点、问题现象越清楚，处理越高效。</div>
+                  <div class="quick-title">已完成</div>
+                  <div class="quick-desc">已有 {{ statistics.COMPLETED || 0 }} 个工单完成处理。</div>
                 </div>
               </div>
             </div>
@@ -622,10 +637,15 @@ import DashboardCharts from '../components/DashboardCharts.vue'
 const userStore = useUserStore()
 
 const statistics = ref({
+  TODAY_NEW: 0,
+  TOTAL: 0,
   PENDING_REVIEW: 0,
   PENDING_PROCESS: 0,
+  REJECTED: 0,
+  WORKER_REJECTED: 0,
   PROCESSING: 0,
-  COMPLETED: 0
+  COMPLETED: 0,
+  CANCELLED: 0
 })
 
 const workerTasks = ref([])
@@ -645,6 +665,36 @@ const analyticsOrders = computed(() => {
   ;[...workerTasks.value, ...workerHistory.value].forEach(order => uniqueOrders.set(order.id, order))
   return [...uniqueOrders.values()]
 })
+
+const localTodayNewCount = computed(() => {
+  return analyticsOrders.value.filter(order => isToday(getOrderCreatedTime(order))).length
+})
+
+const todayNewCount = computed(() => {
+  const serverCount = Number(statistics.value.TODAY_NEW)
+  const safeServerCount = Number.isFinite(serverCount) ? serverCount : 0
+  return Math.max(safeServerCount, localTodayNewCount.value)
+})
+
+function getOrderCreatedTime(order) {
+  return order?.createdAt || order?.createAt || order?.createdTime || order?.createTime
+}
+
+function isToday(value) {
+  if (!value) return false
+
+  const today = formatDateKey(new Date())
+  const raw = String(value).trim()
+  const datePart = raw.split(/[T\s]/)[0]
+  if (datePart === today) return true
+
+  const parsed = new Date(raw.replace(' ', 'T'))
+  return !Number.isNaN(parsed.getTime()) && formatDateKey(parsed) === today
+}
+
+function formatDateKey(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
 
 const cards = computed(() => {
   if (userStore.role === 'WORKER') {
@@ -666,6 +716,12 @@ const cards = computed(() => {
         value: statistics.value.COMPLETED || 0,
         icon: '✅',
         className: 'green-card'
+      },
+      {
+        label: '已拒绝',
+        value: statistics.value.WORKER_REJECTED || 0,
+        icon: '↩️',
+        className: 'red-card'
       }
     ]
   }
@@ -694,12 +750,20 @@ const cards = computed(() => {
       value: statistics.value.COMPLETED || 0,
       icon: '✅',
       className: 'green-card'
+    },
+    {
+      label: '被拒绝',
+      value: statistics.value.WORKER_REJECTED || 0,
+      icon: '↩️',
+      className: 'red-card'
+    },
+    {
+      label: '已取消',
+      value: statistics.value.CANCELLED || 0,
+      icon: '⊘',
+      className: 'gray-card'
     }
   ]
-})
-
-const cardSpan = computed(() => {
-  return userStore.role === 'WORKER' ? 8 : 6
 })
 
 const adminPendingReviewOrders = computed(() => {
@@ -750,7 +814,8 @@ const totalWorkerCount = computed(() => {
   return (
     (statistics.value.PENDING_PROCESS || 0) +
     (statistics.value.PROCESSING || 0) +
-    (statistics.value.COMPLETED || 0)
+    (statistics.value.COMPLETED || 0) +
+    (statistics.value.WORKER_REJECTED || 0)
   )
 })
 
@@ -795,32 +860,44 @@ async function loadDashboard() {
 
   if (userStore.role === 'WORKER') {
     const taskResult = await getWorkerTasks({ pageNum: 1, pageSize: 1000 })
+    const rejectedResult = await getWorkerTasks({ pageNum: 1, pageSize: 1000, status: 'WORKER_REJECTED' })
     const historyResult = await getWorkerHistory({ pageNum: 1, pageSize: 1000 })
-    const tasks = Array.isArray(taskResult) ? taskResult : taskResult.list
-    const history = Array.isArray(historyResult) ? historyResult : historyResult.list
+    const tasks = Array.isArray(taskResult) ? taskResult : (taskResult.list || [])
+    const rejectedTasks = Array.isArray(rejectedResult) ? rejectedResult : (rejectedResult.list || [])
+    const history = Array.isArray(historyResult) ? historyResult : (historyResult.list || [])
 
-    workerTasks.value = tasks
+    workerTasks.value = [...tasks, ...rejectedTasks]
     workerHistory.value = history
 
     statistics.value = {
+      TODAY_NEW: [...tasks, ...rejectedTasks, ...history].filter(item => isToday(getOrderCreatedTime(item))).length,
+      TOTAL: tasks.length + rejectedTasks.length + history.length,
       PENDING_REVIEW: 0,
       PENDING_PROCESS: tasks.filter(item => item.status === 'PENDING_PROCESS').length,
+      REJECTED: 0,
+      WORKER_REJECTED: rejectedTasks.length,
       PROCESSING: tasks.filter(item => item.status === 'PROCESSING').length,
-      COMPLETED: history.filter(item => item.status === 'COMPLETED').length
+      COMPLETED: history.filter(item => item.status === 'COMPLETED').length,
+      CANCELLED: rejectedTasks.filter(item => item.status === 'CANCELLED').length
     }
     return
   }
 
   if (userStore.role === 'STUDENT') {
     const orderPage = await getMyOrders({ pageNum: 1, pageSize: 1000 })
-    const orders = orderPage.list
+    const orders = orderPage.list || []
     studentOrders.value = orders
 
     statistics.value = {
+      TODAY_NEW: orders.filter(item => isToday(getOrderCreatedTime(item))).length,
+      TOTAL: orders.length,
       PENDING_REVIEW: orders.filter(item => item.status === 'PENDING_REVIEW').length,
       PENDING_PROCESS: orders.filter(item => item.status === 'PENDING_PROCESS').length,
+      REJECTED: orders.filter(item => item.status === 'REJECTED').length,
+      WORKER_REJECTED: orders.filter(item => item.status === 'WORKER_REJECTED').length,
       PROCESSING: orders.filter(item => item.status === 'PROCESSING').length,
-      COMPLETED: orders.filter(item => item.status === 'COMPLETED').length
+      COMPLETED: orders.filter(item => item.status === 'COMPLETED').length,
+      CANCELLED: orders.filter(item => item.status === 'CANCELLED').length
     }
   }
 }
@@ -838,7 +915,9 @@ onMounted(loadDashboard)
   min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
 }
 
 .dashboard-heading {
@@ -876,20 +955,43 @@ onMounted(loadDashboard)
   }
 }
 
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
 .stat-card {
-  min-height: 68px;
+  min-height: 76px;
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 16px;
+  justify-content: flex-start;
+  gap: 12px;
+  padding: 0 14px;
   border: none;
-  border-radius: 14px;
+  border-radius: 16px;
   color: #ffffff;
-  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.1);
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
+}
+
+.stat-card :deep(.el-card__body) {
+  width: 100%;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .stat-icon {
-  font-size: 25px;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.18);
+  font-size: 21px;
 }
 
 .stat-info {
@@ -897,14 +999,15 @@ onMounted(loadDashboard)
 }
 
 .stat-value {
-  font-size: 25px;
+  font-size: 24px;
   font-weight: 800;
   line-height: 1;
 }
 
 .stat-label {
   margin-top: 6px;
-  font-size: 14px;
+  font-size: 13px;
+  opacity: 0.92;
 }
 
 .blue-card {
@@ -921,6 +1024,14 @@ onMounted(loadDashboard)
 
 .purple-card {
   background: linear-gradient(135deg, #8e44ad, #b37feb);
+}
+
+.red-card {
+  background: linear-gradient(135deg, #d94b5f, #f07b8b);
+}
+
+.gray-card {
+  background: linear-gradient(135deg, #667085, #98a2b3);
 }
 
 .worker-hero,
