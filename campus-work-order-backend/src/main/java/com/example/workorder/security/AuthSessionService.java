@@ -35,6 +35,7 @@ public class AuthSessionService {
 
     private String key(String token) {
         try {
+            // Redis 键仅保存 Token 摘要；即使键名泄露也不能直接还原登录凭据。
             byte[] digest = MessageDigest.getInstance("SHA-256")
                     .digest(token.getBytes(StandardCharsets.UTF_8));
             return KEY_PREFIX + HexFormat.of().formatHex(digest);

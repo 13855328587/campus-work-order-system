@@ -4,22 +4,12 @@ server:
 spring:
   application:
     name: campus-work-order-backend
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
   servlet:
     multipart:
       max-file-size: 5MB
       max-request-size: 6MB
-  datasource:
-    driver-class-name: com.mysql.cj.jdbc.Driver
-    url: ${DB_URL:jdbc:mysql://localhost:3306/campus_work_order?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
-    username: ${DB_USERNAME:root}
-    password: ${DB_PASSWORD:123456}
-  data:
-    redis:
-      host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
-      password: ${REDIS_PASSWORD:}
-      database: ${REDIS_DATABASE:0}
-      timeout: 3s
 
 captcha:
   expiration: 120s
@@ -33,15 +23,3 @@ mybatis-plus:
   global-config:
     db-config:
       id-type: auto
-
-jwt:
-  secret: ${JWT_SECRET:campus-work-order-secret-key-please-change-it-1234567890}
-  expiration: 86400000
-
-aliyun:
-  oss:
-    endpoint: ${OSS_ENDPOINT:oss-cn-beijing.aliyuncs.com}
-    bucket-name: ${OSS_BUCKET_NAME:}
-    access-key-id: ${OSS_ACCESS_KEY_ID:}
-    access-key-secret: ${OSS_ACCESS_KEY_SECRET:}
-    url-prefix: ${OSS_URL_PREFIX:}

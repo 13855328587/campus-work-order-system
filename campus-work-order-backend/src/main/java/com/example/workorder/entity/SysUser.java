@@ -20,6 +20,9 @@ public class SysUser {
     private Integer status;
     private String avatarUrl;
 
+    @TableLogic(value = "0", delval = "1")
+    private Integer deleted;
+
     @TableField(fill = FieldFill.INSERT)
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime createdAt;

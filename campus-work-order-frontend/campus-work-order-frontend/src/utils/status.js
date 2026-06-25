@@ -31,3 +31,13 @@ export function roleText(role) {
   }
   return map[role] || role
 }
+
+export function categoryText(category) {
+  const map = {
+    ELECTRIC: '电器维修',
+    NETWORK: '网络问题',
+    FURNITURE: '家具设施',
+    OTHER: '其他问题'
+  }
+  return map[category] || category || '未分类'
+}

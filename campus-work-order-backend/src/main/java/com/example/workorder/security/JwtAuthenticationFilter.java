@@ -33,11 +33,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         if (header != null && header.startsWith("Bearer ")) {
             try {
                 String token = header.substring(7);
+                // JWT 签名有效还不够：Redis 会话用于主动退出和服务端撤销 Token。
                 if (!authSessionService.isValid(token)) {
                     throw new IllegalStateException("登录会话不存在或已过期");
                 }
                 Claims claims = jwtUtil.parseToken(token);
                 Long userId = Long.valueOf(claims.get("userId").toString());
+                // 每次请求读取当前账号状态和角色，禁用或改权后旧 Token 立即失效。
                 SysUser user = sysUserMapper.selectById(userId);
                 if (user == null || user.getStatus() == null || user.getStatus() != 1) {
                     throw new IllegalStateException("用户不存在或已被禁用");

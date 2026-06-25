@@ -16,10 +16,12 @@ CREATE TABLE sys_user (
     real_name VARCHAR(50) NOT NULL COMMENT '真实姓名',
     phone VARCHAR(20) NULL COMMENT '手机号',
     avatar_url VARCHAR(500) NULL COMMENT '头像OSS地址',
-    role VARCHAR(30) NOT NULL COMMENT '角色：STUDENT/ADMIN/WORKER',
+    role VARCHAR(30) NOT NULL COMMENT '角色：SUPER_ADMIN/ADMIN/WORKER/STUDENT',
     status TINYINT NOT NULL DEFAULT 1 COMMENT '状态：1启用，0禁用',
+    deleted TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除：0未删除，1已删除',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间'
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    INDEX idx_deleted_role_status (deleted, role, status)
 ) COMMENT='用户表';
 
 CREATE TABLE work_order (
@@ -30,9 +32,9 @@ CREATE TABLE work_order (
     title VARCHAR(100) NOT NULL COMMENT '标题',
     description TEXT NOT NULL COMMENT '描述',
     location VARCHAR(100) NOT NULL COMMENT '地点',
-    category VARCHAR(50) NOT NULL COMMENT '类型',
+    category VARCHAR(50) NOT NULL COMMENT '类别：ELECTRIC/NETWORK/FURNITURE/OTHER',
     priority VARCHAR(20) NOT NULL COMMENT '优先级',
-    status VARCHAR(30) NOT NULL COMMENT '状态',
+    status VARCHAR(30) NOT NULL COMMENT '状态：PENDING_REVIEW/REJECTED/PENDING_PROCESS/PROCESSING/COMPLETED/CANCELLED',
     reject_reason VARCHAR(255) NULL COMMENT '驳回原因',
     finish_result VARCHAR(255) NULL COMMENT '处理结果',
     image_urls TEXT NULL COMMENT '工单图片OSS地址JSON数组',
@@ -41,7 +43,8 @@ CREATE TABLE work_order (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     INDEX idx_creator_id (creator_id),
     INDEX idx_handler_id (handler_id),
-    INDEX idx_status (status)
+    INDEX idx_status (status),
+    INDEX idx_category_status (category, status)
 ) COMMENT='工单表';
 
 CREATE TABLE idempotency_record (
@@ -71,9 +74,10 @@ CREATE TABLE operation_log (
 -- 初始密码均为 123456，BCrypt 加密后保存
 INSERT INTO sys_user (username, password, real_name, phone, role, status)
 VALUES
-('admin', '$2a$10$dXJ3SW6G7P50lGmUkg5QpeFvYhhTkm1d6hGhjRHb30xQoK8WGqWnK', '系统管理员', '18800000001', 'ADMIN', 1),
-('worker', '$2a$10$dXJ3SW6G7P50lGmUkg5QpeFvYhhTkm1d6hGhjRHb30xQoK8WGqWnK', '维修人员', '18800000002', 'WORKER', 1),
-('student', '$2a$10$dXJ3SW6G7P50lGmUkg5QpeFvYhhTkm1d6hGhjRHb30xQoK8WGqWnK', '学生用户', '18800000003', 'STUDENT', 1);
+('admin', '$2a$10$xZPPxpf1LIdTqzauT/PryOlKt/z2Ct99XcQuLsCfZpYWspoVHrfHm', '系统管理员', '18800000001', 'ADMIN', 1),
+('worker', '$2a$10$xZPPxpf1LIdTqzauT/PryOlKt/z2Ct99XcQuLsCfZpYWspoVHrfHm', '维修人员', '18800000002', 'WORKER', 1),
+('student', '$2a$10$xZPPxpf1LIdTqzauT/PryOlKt/z2Ct99XcQuLsCfZpYWspoVHrfHm', '学生用户', '18800000003', 'STUDENT', 1),
+('superadmin', '$2a$10$xZPPxpf1LIdTqzauT/PryOlKt/z2Ct99XcQuLsCfZpYWspoVHrfHm', '超级管理员', '18800000004', 'SUPER_ADMIN', 1);
 
 INSERT INTO work_order (order_no, creator_id, handler_id, title, description, location, category, priority, status)
 VALUES

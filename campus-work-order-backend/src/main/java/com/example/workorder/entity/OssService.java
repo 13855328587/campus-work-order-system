@@ -23,10 +23,17 @@ public class OssService {
 
     private final OssProperties ossProperties;
 
+    /**
+     * 通用头像上传入口，默认保存到 uploads 目录。
+     */
     public String upload(MultipartFile file) {
         return upload(file, "uploads");
     }
 
+    /**
+     * 工单图片上传入口。
+     * 工单图片和头像分目录存储，便于后续权限校验、清理和分类管理。
+     */
     public String uploadWorkOrderImage(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new BusinessException("上传图片不能为空");
@@ -41,9 +48,13 @@ public class OssService {
     }
 
     public boolean isWorkOrderImageUrl(String url) {
-        return url != null && url.startsWith(ossProperties.getUrlPrefix() + "work-orders/");
+        return url != null && url.startsWith(normalizedUrlPrefix() + "work-orders/");
     }
 
+    /**
+     * OSS 实际上传方法。
+     * 数据库只保存文件 URL，不保存文件二进制内容，减轻数据库压力。
+     */
     private String upload(MultipartFile file, String directory) {
         if (file == null || file.isEmpty()) {
             throw new RuntimeException("上传文件不能为空");
@@ -62,6 +73,7 @@ public class OssService {
                 + UUID.randomUUID()
                 + suffix;
 
+        // OSSClient 是轻量客户端，这里按次创建并在 finally 中关闭，避免连接资源泄露。
         OSS ossClient = new OSSClientBuilder().build(
                 ossProperties.getEndpoint(),
                 ossProperties.getAccessKeyId(),
@@ -75,11 +87,20 @@ public class OssService {
                     file.getInputStream()
             );
         } catch (Exception e) {
-            throw new RuntimeException("文件上传失败");
+            throw new RuntimeException("文件上传失败：" + e.getMessage(), e);
         } finally {
             ossClient.shutdown();
         }
 
-        return ossProperties.getUrlPrefix() + objectName;
+        return normalizedUrlPrefix() + objectName;
+    }
+
+    private String normalizedUrlPrefix() {
+        // 统一保证 URL 前缀以 / 结尾，避免拼接后的图片地址缺少斜杠。
+        String prefix = ossProperties.getUrlPrefix();
+        if (prefix == null || prefix.isBlank()) {
+            return "";
+        }
+        return prefix.endsWith("/") ? prefix : prefix + "/";
     }
 }

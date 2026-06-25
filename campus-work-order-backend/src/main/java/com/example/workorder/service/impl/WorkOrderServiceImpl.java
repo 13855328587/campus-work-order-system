@@ -18,11 +18,13 @@ import com.example.workorder.mapper.IdempotencyRecordMapper;
 import com.example.workorder.mapper.OperationLogMapper;
 import com.example.workorder.mapper.SysUserMapper;
 import com.example.workorder.mapper.WorkOrderMapper;
+import com.example.workorder.mq.WorkOrderChangedEvent;
 import com.example.workorder.security.SecurityUtils;
 import com.example.workorder.service.WorkOrderService;
 import com.example.workorder.vo.WorkOrderVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.BeanUtils;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -33,6 +35,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Collections;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Service
@@ -44,12 +47,14 @@ public class WorkOrderServiceImpl implements WorkOrderService {
     private final OperationLogMapper operationLogMapper;
     private final OssService ossService;
     private final ObjectMapper objectMapper;
+    private final ApplicationEventPublisher applicationEventPublisher;
 
     @Override
     @Transactional
     public WorkOrderVO create(CreateWorkOrderRequest request, String idempotencyKey) {
         Long userId = SecurityUtils.getUserId();
 
+        // 同一用户重试同一个请求时返回首次创建结果，避免网络重试产生重复工单。
         if (!StringUtils.hasText(idempotencyKey)) {
             throw new BusinessException("缺少 Idempotency-Key 请求头");
         }
@@ -63,6 +68,7 @@ public class WorkOrderServiceImpl implements WorkOrderService {
             return detail(oldRecord.getOrderId());
         }
 
+        // 新建工单默认进入待审核状态，由管理员审核通过后再进入待处理。
         WorkOrder order = new WorkOrder();
         order.setOrderNo(generateOrderNo());
         order.setCreatorId(userId);
@@ -94,6 +100,7 @@ public class WorkOrderServiceImpl implements WorkOrderService {
             String orderNo,
             String title,
             String location,
+            String category,
             String priority,
             String status,
             LocalDateTime startTime,
@@ -111,6 +118,7 @@ public class WorkOrderServiceImpl implements WorkOrderService {
                 .like(StringUtils.hasText(orderNo), WorkOrder::getOrderNo, orderNo)
                 .like(StringUtils.hasText(title), WorkOrder::getTitle, title)
                 .like(StringUtils.hasText(location), WorkOrder::getLocation, location)
+                .eq(StringUtils.hasText(category), WorkOrder::getCategory, category)
                 .eq(StringUtils.hasText(priority), WorkOrder::getPriority, priority)
                 .eq(StringUtils.hasText(status), WorkOrder::getStatus, status)
                 .ge(startTime != null, WorkOrder::getCreatedAt, startTime)
@@ -139,6 +147,7 @@ public class WorkOrderServiceImpl implements WorkOrderService {
         String role = SecurityUtils.getRole();
         Long userId = SecurityUtils.getUserId();
 
+        // 数据归属校验必须放在后端，不能只依赖前端隐藏按钮或路由。
         if (UserRole.STUDENT.name().equals(role) && !order.getCreatorId().equals(userId)) {
             throw new BusinessException(403, "只能查看自己的工单");
         }
@@ -153,11 +162,30 @@ public class WorkOrderServiceImpl implements WorkOrderService {
     @Transactional
     public void approve(Long id) {
         WorkOrder order = getOrder(id);
+        // 审核只允许从待审核进入待处理，禁止跨状态调用接口。
         checkStatus(order, WorkOrderStatus.PENDING_REVIEW);
         String before = order.getStatus();
         order.setStatus(WorkOrderStatus.PENDING_PROCESS.name());
         updateOrderOrThrow(order);
         saveLog(SecurityUtils.getUserId(), id, "APPROVE", before, order.getStatus(), "审核通过");
+    }
+
+    @Override
+    @Transactional
+    public void batchApprove(List<Long> ids) {
+        List<Long> distinctIds = ids.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+
+        if (distinctIds.isEmpty()) {
+            throw new BusinessException("请选择工单");
+        }
+
+        // 批量通过复用单个通过逻辑，确保状态校验、日志记录规则保持一致。
+        for (Long id : distinctIds) {
+            approve(id);
+        }
     }
 
     @Override
@@ -178,6 +206,7 @@ public class WorkOrderServiceImpl implements WorkOrderService {
         WorkOrder order = getOrder(id);
         checkStatus(order, WorkOrderStatus.PENDING_PROCESS);
 
+        // 分配时再次校验角色和启用状态，防止绕过下拉列表提交禁用员工 ID。
         SysUser worker = sysUserMapper.selectById(request.getHandlerId());
         if (worker == null || !UserRole.WORKER.name().equals(worker.getRole())
                 || worker.getStatus() == null || worker.getStatus() != 1) {
@@ -208,6 +237,7 @@ public class WorkOrderServiceImpl implements WorkOrderService {
         order.setHandlerId(userId);
         order.setStatus(WorkOrderStatus.PROCESSING.name());
 
+        // WorkOrder.version 参与 UPDATE 条件；多人同时接单时只有一个请求能更新成功。
         int rows = workOrderMapper.updateById(order);
         if (rows == 0) {
             throw new BusinessException(409, "工单已被其他人处理，请刷新后重试");
@@ -217,10 +247,29 @@ public class WorkOrderServiceImpl implements WorkOrderService {
 
     @Override
     @Transactional
+    public void batchAccept(List<Long> ids) {
+        List<Long> distinctIds = ids.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+
+        if (distinctIds.isEmpty()) {
+            throw new BusinessException("请选择工单");
+        }
+
+        // 批量接单仍逐个走 accept，保留每个工单的乐观锁并发保护。
+        for (Long id : distinctIds) {
+            accept(id);
+        }
+    }
+
+    @Override
+    @Transactional
     public void finish(Long id, FinishWorkOrderRequest request) {
         WorkOrder order = getOrder(id);
         checkStatus(order, WorkOrderStatus.PROCESSING);
 
+        // 维修人员只能完成自己正在处理的工单，防止越权提交处理结果。
         Long userId = SecurityUtils.getUserId();
         if (!userId.equals(order.getHandlerId())) {
             throw new BusinessException(403, "只能完成自己处理中的工单");
@@ -239,6 +288,7 @@ public class WorkOrderServiceImpl implements WorkOrderService {
         WorkOrder order = getOrder(id);
         Long userId = SecurityUtils.getUserId();
 
+        // 学生只能取消自己提交的工单。
         if (!order.getCreatorId().equals(userId)) {
             throw new BusinessException(403, "只能取消自己的工单");
         }
@@ -255,6 +305,24 @@ public class WorkOrderServiceImpl implements WorkOrderService {
     }
 
     @Override
+    @Transactional
+    public void batchCancel(List<Long> ids) {
+        List<Long> distinctIds = ids.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+
+        if (distinctIds.isEmpty()) {
+            throw new BusinessException("请选择工单");
+        }
+
+        // 批量取消复用单个取消逻辑，统一校验归属和状态。
+        for (Long id : distinctIds) {
+            cancel(id);
+        }
+    }
+
+    @Override
     public Map<String, Long> statistics() {
         List<WorkOrder> orders = workOrderMapper.selectList(null);
         return orders.stream().collect(Collectors.groupingBy(WorkOrder::getStatus, Collectors.counting()));
@@ -267,6 +335,7 @@ public class WorkOrderServiceImpl implements WorkOrderService {
             String orderNo,
             String title,
             String location,
+            String category,
             String priority,
             String status,
             LocalDateTime startTime,
@@ -291,6 +360,7 @@ public class WorkOrderServiceImpl implements WorkOrderService {
                 .like(StringUtils.hasText(orderNo), WorkOrder::getOrderNo, orderNo)
                 .like(StringUtils.hasText(title), WorkOrder::getTitle, title)
                 .like(StringUtils.hasText(location), WorkOrder::getLocation, location)
+                .eq(StringUtils.hasText(category), WorkOrder::getCategory, category)
                 .eq(StringUtils.hasText(priority), WorkOrder::getPriority, priority)
                 .eq(StringUtils.hasText(status), WorkOrder::getStatus, status)
                 .ge(startTime != null, WorkOrder::getCreatedAt, startTime)
@@ -325,6 +395,7 @@ public class WorkOrderServiceImpl implements WorkOrderService {
             String orderNo,
             String title,
             String location,
+            String category,
             String priority,
             String status,
             LocalDateTime startTime,
@@ -342,6 +413,7 @@ public class WorkOrderServiceImpl implements WorkOrderService {
         qw.like(StringUtils.hasText(orderNo), WorkOrder::getOrderNo, orderNo)
                 .like(StringUtils.hasText(title), WorkOrder::getTitle, title)
                 .like(StringUtils.hasText(location), WorkOrder::getLocation, location)
+                .eq(StringUtils.hasText(category), WorkOrder::getCategory, category)
                 .eq(StringUtils.hasText(priority), WorkOrder::getPriority, priority)
                 .eq(StringUtils.hasText(status), WorkOrder::getStatus, status)
                 .ge(startTime != null, WorkOrder::getCreatedAt, startTime)
@@ -369,6 +441,7 @@ public class WorkOrderServiceImpl implements WorkOrderService {
     }
 
     private void updateOrderOrThrow(WorkOrder order) {
+        // 统一处理乐观锁冲突，避免更新失败后仍然写入成功操作日志。
         if (workOrderMapper.updateById(order) == 0) {
             throw new BusinessException(409, "工单已被其他人更新，请刷新后重试");
         }
@@ -385,6 +458,7 @@ public class WorkOrderServiceImpl implements WorkOrderService {
         if (imageUrls == null || imageUrls.isEmpty()) {
             return null;
         }
+        // 只接受本系统工单目录中的 OSS 地址，避免保存任意外链造成跟踪或内容风险。
         if (imageUrls.size() > 5 || imageUrls.stream().anyMatch(url -> !ossService.isWorkOrderImageUrl(url))) {
             throw new BusinessException("工单图片地址不合法，请重新上传");
         }
@@ -421,5 +495,15 @@ public class WorkOrderServiceImpl implements WorkOrderService {
         log.setAfterStatus(after);
         log.setRemark(remark);
         operationLogMapper.insert(log);
+
+        applicationEventPublisher.publishEvent(new WorkOrderChangedEvent(
+                orderId,
+                userId,
+                operation,
+                before,
+                after,
+                remark,
+                System.currentTimeMillis()
+        ));
     }
 }

@@ -30,16 +30,39 @@ services:
       timeout: 5s
       retries: 12
 
+  rabbitmq:
+    image: rabbitmq:4.1-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-campus}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-campus123}
+      TZ: Asia/Shanghai
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
   backend:
     build:
       context: ./campus-work-order-backend
     restart: unless-stopped
     environment:
+      SPRING_PROFILES_ACTIVE: prod
       DB_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-campus_work_order}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
       DB_USERNAME: root
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-campus}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-campus123}
       JWT_SECRET: ${JWT_SECRET:-campus-work-order-secret-key-please-change-it-1234567890}
       OSS_ENDPOINT: ${OSS_ENDPOINT:-oss-cn-beijing.aliyuncs.com}
       OSS_BUCKET_NAME: ${OSS_BUCKET_NAME:-}
@@ -51,6 +74,8 @@ services:
       mysql:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     ports:
       - "8080:8080"
@@ -67,4 +92,4 @@ services:
 volumes:
   mysql_data:
   redis_data:
-
+  rabbitmq_data:

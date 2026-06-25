@@ -19,6 +19,13 @@
         <el-input v-model="searchForm.title" placeholder="标题" clearable class="search-item" />
         <el-input v-model="searchForm.location" placeholder="地点" clearable class="search-item" />
 
+        <el-select v-model="searchForm.category" placeholder="类别" clearable class="search-select">
+          <el-option label="电器维修" value="ELECTRIC" />
+          <el-option label="网络问题" value="NETWORK" />
+          <el-option label="家具设施" value="FURNITURE" />
+          <el-option label="其他问题" value="OTHER" />
+        </el-select>
+
         <el-select v-model="searchForm.priority" placeholder="优先级" clearable class="search-select">
           <el-option label="低" value="LOW" />
           <el-option label="中" value="MEDIUM" />
@@ -64,12 +71,62 @@
         <el-tab-pane label="已取消" name="CANCELLED" />
       </el-tabs>
 
+      <div class="table-header">
+        <div class="table-title">工单列表</div>
+        <div class="table-tools">
+          <span class="table-count">共 {{ page.total }} 条</span>
+          <el-tooltip content="刷新" placement="top">
+            <el-icon
+              class="table-refresh"
+              :class="{ 'is-loading': loading }"
+              role="button"
+              tabindex="0"
+              aria-label="刷新工单列表"
+              @click="loadData"
+              @keydown.enter="loadData"
+            ><Refresh /></el-icon>
+          </el-tooltip>
+        </div>
+      </div>
+
+      <div class="batch-toolbar">
+        <template v-if="searchForm.status === 'PENDING_REVIEW'">
+          <span class="batch-tip">已选 {{ selectedRows.length }} 项</span>
+          <el-button
+            type="success"
+            plain
+            size="small"
+            :disabled="!selectedRows.length"
+            @click="batchApprove"
+          >
+            批量通过
+          </el-button>
+        </template>
+      </div>
+
       <!-- 表格 -->
-      <el-table :data="orders" border stripe height="100%">
+      <el-table
+        v-loading="loading"
+        :data="orders"
+        border
+        stripe
+        height="100%"
+        :class="{ 'hide-selection-column': searchForm.status !== 'PENDING_REVIEW' }"
+        @selection-change="handleSelectionChange"
+      >
+
+        <el-table-column
+          type="selection"
+          width="48"
+          :selectable="canSelectOrder"
+        />
 
         <el-table-column prop="orderNo" label="工单编号" width="170" />
-        <el-table-column prop="title" label="标题" min-width="200" />
-        <el-table-column prop="location" label="地点" min-width="200" />
+        <el-table-column prop="title" label="标题" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="location" label="地点" min-width="170" show-overflow-tooltip />
+        <el-table-column label="类别" width="110">
+          <template #default="{ row }">{{ categoryText(row.category) }}</template>
+        </el-table-column>
         <el-table-column prop="priority" label="优先级" width="100" />
 
         <el-table-column label="状态" width="120">
@@ -80,13 +137,13 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="维修人员" width="180">
+        <el-table-column label="维修人员" width="100">
           <template #default="{ row }">
             {{ getWorkerName(row.handlerId) }}
           </template>
         </el-table-column>
 
-        <el-table-column prop="createdAt" label="创建时间" width="180" />
+        <el-table-column prop="createdAt" label="创建时间" width="200" />
 
         <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
@@ -144,19 +201,19 @@
 
     <!-- 详情弹窗 -->
     <el-dialog v-model="detailDialog" title="工单详情" width="650px">
-      <el-descriptions v-if="currentOrder" :column="2" border>
+      <el-descriptions v-if="currentOrder" :column="2" border class="work-order-detail">
         <el-descriptions-item label="工单编号">
           {{ currentOrder.orderNo }}
         </el-descriptions-item>
 
-        <el-descriptions-item label="状态">
-          <el-tag :type="statusType(currentOrder.status)">
-            {{ statusText(currentOrder.status) }}
-          </el-tag>
+        <el-descriptions-item label="标题">
+          <el-tooltip :content="currentOrder.title" placement="top" :show-after="300" popper-class="detail-value-tooltip">
+            <span class="detail-single-line">{{ currentOrder.title }}</span>
+          </el-tooltip>
         </el-descriptions-item>
 
-        <el-descriptions-item label="标题">
-          {{ currentOrder.title }}
+        <el-descriptions-item label="类别">
+          {{ categoryText(currentOrder.category) }}
         </el-descriptions-item>
 
         <el-descriptions-item label="优先级">
@@ -164,19 +221,13 @@
         </el-descriptions-item>
 
         <el-descriptions-item label="地点">
-          {{ currentOrder.location }}
+          <el-tooltip :content="currentOrder.location" placement="top" :show-after="300" popper-class="detail-value-tooltip">
+            <span class="detail-single-line">{{ currentOrder.location }}</span>
+          </el-tooltip>
         </el-descriptions-item>
 
         <el-descriptions-item label="创建时间">
           {{ currentOrder.createdAt || '暂无' }}
-        </el-descriptions-item>
-
-        <el-descriptions-item label="维修人员" :span="2">
-          {{ getWorkerName(currentOrder.handlerId) }}
-        </el-descriptions-item>
-
-        <el-descriptions-item label="问题描述" :span="2">
-          {{ currentOrder.description || '暂无描述' }}
         </el-descriptions-item>
 
         <el-descriptions-item label="现场图片" :span="2">
@@ -195,12 +246,22 @@
           <span v-else>暂无图片</span>
         </el-descriptions-item>
 
+        <el-descriptions-item label="问题描述" :span="2">
+          <div class="detail-scroll-text">
+            {{ currentOrder.description || '暂无描述' }}
+          </div>
+        </el-descriptions-item>
+
         <el-descriptions-item label="处理结果" :span="2">
-          {{ currentOrder.finishResult || '暂无处理结果' }}
+          <div class="detail-scroll-text">
+            {{ currentOrder.finishResult || '暂无处理结果' }}
+          </div>
         </el-descriptions-item>
 
         <el-descriptions-item label="驳回原因" :span="2">
-          {{ currentOrder.rejectReason || '暂无驳回原因' }}
+          <div class="detail-scroll-text">
+            {{ currentOrder.rejectReason || '暂无驳回原因' }}
+          </div>
         </el-descriptions-item>
       </el-descriptions>
 
@@ -249,21 +310,25 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Refresh } from '@element-plus/icons-vue'
 
 import {
   getOrderPage,
   getWorkOrderDetail,
   approveWorkOrder,
+  batchApproveWorkOrder,
   rejectWorkOrder,
   assignWorkOrder
 } from '../../api/workOrder'
 
 import { getWorkers } from '../../api/user'
-import { statusText, statusType } from '../../utils/status'
+import { categoryText, statusText, statusType } from '../../utils/status'
 
 /* 数据 */
 const orders = ref([])
 const workers = ref([])
+const selectedRows = ref([])
+const loading = ref(false)
 
 /* 分页 */
 const page = reactive({
@@ -286,6 +351,7 @@ const searchForm = reactive({
   orderNo: '',
   title: '',
   location: '',
+  category: '',
   priority: '',
   status: 'PENDING_REVIEW',
   startTime: '',
@@ -294,17 +360,25 @@ const searchForm = reactive({
 
 /* 加载数据（核心） */
 async function loadData() {
-  const res = await getOrderPage({
-    pageNum: page.pageNum,
-    pageSize: page.pageSize,
-    ...searchForm
-  })
+  if (loading.value) return
+  loading.value = true
+  try {
+    // 管理员端按当前标签状态分页查询工单，后端负责时间范围和条件过滤。
+    const res = await getOrderPage({
+      pageNum: page.pageNum,
+      pageSize: page.pageSize,
+      ...searchForm
+    })
 
-  orders.value = [...res.list].sort((a, b) => {
-    const timeDiff = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    return timeDiff || Number(b.id) - Number(a.id)
-  })
-  page.total = res.total
+    orders.value = [...res.list].sort((a, b) => {
+      const timeDiff = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      return timeDiff || Number(b.id) - Number(a.id)
+    })
+    selectedRows.value = []
+    page.total = res.total
+  } finally {
+    loading.value = false
+  }
 }
 
 /* 查询 */
@@ -324,6 +398,7 @@ function resetSearch() {
     orderNo: '',
     title: '',
     location: '',
+    category: '',
     priority: '',
     status: 'PENDING_REVIEW',
     startTime: '',
@@ -371,6 +446,38 @@ async function submitAssign() {
 async function approve(id) {
   await approveWorkOrder(id)
   ElMessage.success('审核通过')
+  loadData()
+}
+
+function canSelectOrder(row) {
+  // 批量通过只允许选择待审核工单，其它状态不能跨状态操作。
+  return row.status === 'PENDING_REVIEW'
+}
+
+function handleSelectionChange(rows) {
+  selectedRows.value = rows.filter(canSelectOrder)
+}
+
+async function batchApprove() {
+  // 批量通过走后端事务接口，保证状态校验和操作日志一致。
+  const rows = selectedRows.value.filter(canSelectOrder)
+  if (!rows.length) {
+    ElMessage.warning('请选择待审核工单')
+    return
+  }
+
+  await ElMessageBox.confirm(
+    `确定通过选中的 ${rows.length} 个待审核工单吗？`,
+    '批量通过',
+    {
+      confirmButtonText: '确定通过',
+      cancelButtonText: '取消',
+      type: 'warning'
+    }
+  )
+
+  await batchApproveWorkOrder(rows.map(row => row.id))
+  ElMessage.success(`已通过 ${rows.length} 个工单`)
   loadData()
 }
 
@@ -449,6 +556,53 @@ onMounted(() => {
 
 .status-tabs :deep(.el-tabs__header) {
   margin-bottom: 0;
+}
+
+.table-header,
+.table-tools {
+  display: flex;
+  align-items: center;
+}
+
+.table-header {
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.table-title {
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.table-tools {
+  gap: 12px;
+}
+
+.table-count {
+  color: #909399;
+  font-size: 13px;
+}
+
+.batch-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  border: 1px solid #eef2f7;
+  border-radius: 10px;
+  background: #fbfdff;
+}
+
+.batch-tip {
+  margin-right: 4px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.hide-selection-column :deep(.el-table-column--selection .cell) {
+  visibility: hidden;
 }
 
 .detail-images {

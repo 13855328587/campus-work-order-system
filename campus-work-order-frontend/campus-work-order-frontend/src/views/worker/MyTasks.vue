@@ -40,6 +40,18 @@
         />
 
         <el-select
+          v-model="searchForm.category"
+          placeholder="类别"
+          clearable
+          class="search-select"
+        >
+          <el-option label="电器维修" value="ELECTRIC" />
+          <el-option label="网络问题" value="NETWORK" />
+          <el-option label="家具设施" value="FURNITURE" />
+          <el-option label="其他问题" value="OTHER" />
+        </el-select>
+
+        <el-select
           v-model="searchForm.priority"
           placeholder="优先级"
           clearable
@@ -83,13 +95,58 @@
 
       <div class="table-header">
         <div class="table-title">{{ statusText(activeStatus) }}任务列表</div>
-        <div class="table-count">共 {{ page.total }} 条</div>
+        <div class="table-tools">
+          <div class="table-count">共 {{ page.total }} 条</div>
+          <el-tooltip content="刷新" placement="top">
+            <el-icon
+              class="table-refresh"
+              :class="{ 'is-loading': loading }"
+              role="button"
+              tabindex="0"
+              aria-label="刷新任务列表"
+              @click="loadData"
+              @keydown.enter="loadData"
+            ><Refresh /></el-icon>
+          </el-tooltip>
+        </div>
       </div>
 
-      <el-table :data="orders" border stripe height="100%">
+      <div class="batch-toolbar">
+        <template v-if="canBatchAcceptStatus">
+          <span class="batch-tip">已选 {{ selectedRows.length }} 项</span>
+          <el-button
+            type="primary"
+            plain
+            size="small"
+            :disabled="!selectedRows.length"
+            @click="handleBatchAccept"
+          >
+            批量接单
+          </el-button>
+        </template>
+      </div>
+
+      <el-table
+        v-loading="loading"
+        :data="orders"
+        border
+        stripe
+        height="100%"
+        :class="{ 'hide-selection-column': !canBatchAcceptStatus }"
+        @selection-change="handleSelectionChange"
+      >
+        <el-table-column
+          type="selection"
+          width="48"
+          :selectable="canSelectOrder"
+        />
+
         <el-table-column prop="orderNo" label="工单编号" width="170" />
-        <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip />
-        <el-table-column prop="location" label="地点" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="title" label="标题" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="location" label="地点" min-width="170" show-overflow-tooltip />
+        <el-table-column label="类别" width="110">
+          <template #default="{ row }">{{ categoryText(row.category) }}</template>
+        </el-table-column>
         <el-table-column prop="priority" label="优先级" width="100" />
 
         <el-table-column label="状态" width="120">
@@ -157,19 +214,20 @@
         v-if="currentOrder"
         :column="2"
         border
+        class="work-order-detail"
       >
         <el-descriptions-item label="工单编号">
           {{ currentOrder.orderNo }}
         </el-descriptions-item>
 
-        <el-descriptions-item label="状态">
-          <el-tag :type="statusType(currentOrder.status)">
-            {{ statusText(currentOrder.status) }}
-          </el-tag>
+        <el-descriptions-item label="标题">
+          <el-tooltip :content="currentOrder.title" placement="top" :show-after="300" popper-class="detail-value-tooltip">
+            <span class="detail-single-line">{{ currentOrder.title }}</span>
+          </el-tooltip>
         </el-descriptions-item>
 
-        <el-descriptions-item label="标题">
-          {{ currentOrder.title }}
+        <el-descriptions-item label="类别">
+          {{ categoryText(currentOrder.category) }}
         </el-descriptions-item>
 
         <el-descriptions-item label="优先级">
@@ -177,21 +235,39 @@
         </el-descriptions-item>
 
         <el-descriptions-item label="地点">
-          {{ currentOrder.location }}
+          <el-tooltip :content="currentOrder.location" placement="top" :show-after="300" popper-class="detail-value-tooltip">
+            <span class="detail-single-line">{{ currentOrder.location }}</span>
+          </el-tooltip>
         </el-descriptions-item>
 
         <el-descriptions-item label="创建时间">
           {{ currentOrder.createdAt || '暂无' }}
         </el-descriptions-item>
 
+        <el-descriptions-item label="现场图片" :span="2">
+          <div v-if="currentOrder.imageUrls?.length" class="detail-images">
+            <el-image
+              v-for="(url, index) in currentOrder.imageUrls"
+              :key="url"
+              :src="url"
+              :preview-src-list="currentOrder.imageUrls"
+              :initial-index="index"
+              fit="cover"
+              class="detail-image"
+              preview-teleported
+            />
+          </div>
+          <span v-else>暂无图片</span>
+        </el-descriptions-item>
+
         <el-descriptions-item label="问题描述" :span="2">
-          <div class="detail-text">
+          <div class="detail-scroll-text">
             {{ currentOrder.description || '暂无问题描述' }}
           </div>
         </el-descriptions-item>
 
         <el-descriptions-item label="处理结果" :span="2">
-          <div class="detail-text">
+          <div class="detail-scroll-text">
             {{ currentOrder.finishResult || '暂无处理结果' }}
           </div>
         </el-descriptions-item>
@@ -209,21 +285,25 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Refresh } from '@element-plus/icons-vue'
 import {
   acceptWorkOrder,
+  batchAcceptWorkOrder,
   finishWorkOrder,
   getWorkerTasks,
   getWorkerHistory
 } from '../../api/workOrder'
-import { statusText, statusType } from '../../utils/status'
+import { categoryText, statusText, statusType } from '../../utils/status'
 
 const activeStatus = ref('PENDING_PROCESS')
 const orders = ref([])
+const selectedRows = ref([])
 
 const detailDialog = ref(false)
 const currentOrder = ref(null)
+const loading = ref(false)
 
 const page = reactive({
   pageNum: 1,
@@ -235,6 +315,7 @@ const searchForm = reactive({
   orderNo: '',
   title: '',
   location: '',
+  category: '',
   priority: '',
   startTime: '',
   endTime: ''
@@ -244,15 +325,19 @@ const queryForm = reactive({
   orderNo: '',
   title: '',
   location: '',
+  category: '',
   priority: '',
   startTime: '',
   endTime: ''
 })
 
+const canBatchAcceptStatus = computed(() => activeStatus.value === 'PENDING_PROCESS')
+
 function filterLocalOrders(list) {
   const orderNo = queryForm.orderNo.trim().toLowerCase()
   const title = queryForm.title.trim().toLowerCase()
   const location = queryForm.location.trim().toLowerCase()
+  const category = queryForm.category
   const priority = queryForm.priority
 
   return list.filter(item => {
@@ -264,6 +349,9 @@ function filterLocalOrders(list) {
 
     const matchLocation =
       !location || String(item.location || '').toLowerCase().includes(location)
+
+    const matchCategory =
+      !category || item.category === category
 
     const matchPriority =
       !priority || item.priority === priority
@@ -284,30 +372,38 @@ function filterLocalOrders(list) {
       }
     }
 
-    return matchOrderNo && matchTitle && matchLocation && matchPriority && matchStatus && matchTime
+    return matchOrderNo && matchTitle && matchLocation && matchCategory && matchPriority && matchStatus && matchTime
   })
 }
 
 async function loadData() {
-  const params = {
-    pageNum: page.pageNum,
-    pageSize: page.pageSize,
-    status: activeStatus.value,
-    ...queryForm
-  }
+  if (loading.value) return
+  loading.value = true
+  try {
+    // 待处理/处理中走任务分页接口，已完成历史可能返回数组，因此下面兼容两种返回结构。
+    const params = {
+      pageNum: page.pageNum,
+      pageSize: page.pageSize,
+      status: activeStatus.value,
+      ...queryForm
+    }
 
-  const res = activeStatus.value === 'COMPLETED'
-    ? await getWorkerHistory(params)
-    : await getWorkerTasks(params)
+    const res = activeStatus.value === 'COMPLETED'
+      ? await getWorkerHistory(params)
+      : await getWorkerTasks(params)
 
-  if (Array.isArray(res)) {
-    const filtered = filterLocalOrders(res)
-    const start = (page.pageNum - 1) * page.pageSize
-    orders.value = filtered.slice(start, start + page.pageSize)
-    page.total = filtered.length
-  } else {
-    orders.value = res.list || []
-    page.total = res.total || 0
+    if (Array.isArray(res)) {
+      const filtered = filterLocalOrders(res)
+      const start = (page.pageNum - 1) * page.pageSize
+      orders.value = filtered.slice(start, start + page.pageSize)
+      page.total = filtered.length
+    } else {
+      orders.value = res.list || []
+      page.total = res.total || 0
+    }
+    selectedRows.value = []
+  } finally {
+    loading.value = false
   }
 }
 
@@ -331,6 +427,7 @@ function resetSearch() {
     orderNo: '',
     title: '',
     location: '',
+    category: '',
     priority: '',
     startTime: '',
     endTime: ''
@@ -366,6 +463,40 @@ function openDetail(row) {
 async function accept(id) {
   await acceptWorkOrder(id)
   ElMessage.success('接单成功')
+  await loadData()
+}
+
+function canSelectOrder(row) {
+  // 批量接单只允许选择待处理工单，处理中和已完成不能再接单。
+  return row.status === 'PENDING_PROCESS'
+}
+
+function handleSelectionChange(rows) {
+  selectedRows.value = rows.filter(canSelectOrder)
+}
+
+async function handleBatchAccept() {
+  // 批量接单走后端接口，后端会使用乐观锁防止多人同时抢同一工单。
+  const rows = selectedRows.value.filter(canSelectOrder)
+  if (!rows.length) {
+    ElMessage.warning('请选择待处理工单')
+    return
+  }
+
+  await ElMessageBox.confirm(
+    `确定接收选中的 ${rows.length} 个待处理工单吗？`,
+    '批量接单',
+    {
+      confirmButtonText: '确定接单',
+      cancelButtonText: '取消',
+      type: 'warning'
+    }
+  )
+
+  await batchAcceptWorkOrder(rows.map(row => row.id))
+  ElMessage.success(`已接收 ${rows.length} 个工单`)
+  activeStatus.value = 'PROCESSING'
+  page.pageNum = 1
   await loadData()
 }
 
@@ -481,11 +612,52 @@ onMounted(loadData)
   font-size: 13px;
 }
 
+.table-tools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.batch-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  border: 1px solid #eef2f7;
+  border-radius: 10px;
+  background: #fbfdff;
+}
+
+.batch-tip {
+  margin-right: 4px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.hide-selection-column :deep(.el-table-column--selection .cell) {
+  visibility: hidden;
+}
+
 .detail-text {
   line-height: 1.7;
   color: #606266;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.detail-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.detail-image {
+  width: 96px;
+  height: 96px;
+  border-radius: 6px;
+  cursor: zoom-in;
 }
 
 .pagination {

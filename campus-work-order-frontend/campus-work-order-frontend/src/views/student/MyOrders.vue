@@ -38,6 +38,18 @@
         />
 
         <el-select
+          v-model="searchForm.category"
+          placeholder="类别"
+          clearable
+          class="search-select"
+        >
+          <el-option label="电器维修" value="ELECTRIC" />
+          <el-option label="网络问题" value="NETWORK" />
+          <el-option label="家具设施" value="FURNITURE" />
+          <el-option label="其他问题" value="OTHER" />
+        </el-select>
+
+        <el-select
           v-model="searchForm.priority"
           placeholder="优先级"
           clearable
@@ -88,13 +100,62 @@
 
       <div class="table-header">
         <div class="table-title">工单列表</div>
-        <div class="table-count">共 {{ page.total }} 条</div>
+        <div class="table-tools">
+          <div class="table-count">共 {{ page.total }} 条</div>
+          <el-tooltip content="刷新" placement="top">
+            <el-icon
+              class="table-refresh"
+              :class="{ 'is-loading': loading }"
+              role="button"
+              tabindex="0"
+              aria-label="刷新工单列表"
+              @click="loadData"
+              @keydown.enter="loadData"
+            ><Refresh /></el-icon>
+          </el-tooltip>
+        </div>
       </div>
 
-      <el-table :data="orders" border stripe height="100%">
-        <el-table-column prop="orderNo" label="工单编号" width="170" />
-        <el-table-column prop="title" label="标题" min-width="220" show-overflow-tooltip />
-        <el-table-column prop="location" label="地点" min-width="200" show-overflow-tooltip />
+      <div class="batch-toolbar">
+        <template v-if="canBatchCancelStatus">
+          <span class="batch-tip">已选 {{ selectedRows.length }} 项</span>
+          <el-button
+            type="danger"
+            plain
+            size="small"
+            :disabled="!selectedRows.length"
+            @click="handleBatchCancel"
+          >
+            批量取消
+          </el-button>
+        </template>
+      </div>
+
+      <el-table
+        v-loading="loading"
+        :data="orders"
+        border
+        stripe
+        height="100%"
+        :class="{ 'hide-selection-column': !canBatchCancelStatus }"
+        @selection-change="handleSelectionChange"
+      >
+        <el-table-column
+          type="selection"
+          width="48"
+          :selectable="canSelectOrder"
+        />
+
+        <el-table-column
+          prop="orderNo"
+          label="工单编号"
+          width="170"
+        />
+        <el-table-column prop="title" label="标题" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="location" label="地点" min-width="170" show-overflow-tooltip />
+        <el-table-column label="类别" width="110">
+          <template #default="{ row }">{{ categoryText(row.category) }}</template>
+        </el-table-column>
         <el-table-column prop="priority" label="优先级" width="100" />
 
         <el-table-column label="状态" width="120">
@@ -105,7 +166,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column prop="createdAt" label="创建时间" width="180" />
+        <el-table-column prop="createdAt" label="创建时间" width="240" />
 
         <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">
@@ -152,19 +213,20 @@
         v-if="currentOrder"
         :column="2"
         border
+        class="work-order-detail"
       >
         <el-descriptions-item label="工单编号">
           {{ currentOrder.orderNo }}
         </el-descriptions-item>
 
-        <el-descriptions-item label="状态">
-          <el-tag :type="statusType(currentOrder.status)">
-            {{ statusText(currentOrder.status) }}
-          </el-tag>
+        <el-descriptions-item label="标题">
+          <el-tooltip :content="currentOrder.title" placement="top" :show-after="300" popper-class="detail-value-tooltip">
+            <span class="detail-single-line">{{ currentOrder.title }}</span>
+          </el-tooltip>
         </el-descriptions-item>
 
-        <el-descriptions-item label="标题">
-          {{ currentOrder.title }}
+        <el-descriptions-item label="类别">
+          {{ categoryText(currentOrder.category) }}
         </el-descriptions-item>
 
         <el-descriptions-item label="优先级">
@@ -172,17 +234,13 @@
         </el-descriptions-item>
 
         <el-descriptions-item label="地点">
-          {{ currentOrder.location }}
+          <el-tooltip :content="currentOrder.location" placement="top" :show-after="300" popper-class="detail-value-tooltip">
+            <span class="detail-single-line">{{ currentOrder.location }}</span>
+          </el-tooltip>
         </el-descriptions-item>
 
         <el-descriptions-item label="创建时间">
           {{ currentOrder.createdAt || '暂无' }}
-        </el-descriptions-item>
-
-        <el-descriptions-item label="问题描述" :span="2">
-          <div class="detail-text">
-            {{ currentOrder.description || '暂无描述' }}
-          </div>
         </el-descriptions-item>
 
         <el-descriptions-item label="现场图片" :span="2">
@@ -201,14 +259,20 @@
           <span v-else>暂无图片</span>
         </el-descriptions-item>
 
+        <el-descriptions-item label="问题描述" :span="2">
+          <div class="detail-scroll-text">
+            {{ currentOrder.description || '暂无描述' }}
+          </div>
+        </el-descriptions-item>
+
         <el-descriptions-item label="处理结果" :span="2">
-          <div class="detail-text">
+          <div class="detail-scroll-text">
             {{ currentOrder.finishResult || '暂无处理结果' }}
           </div>
         </el-descriptions-item>
 
         <el-descriptions-item label="驳回原因" :span="2">
-          <div class="detail-text">
+          <div class="detail-scroll-text">
             {{ currentOrder.rejectReason || '暂无驳回原因' }}
           </div>
         </el-descriptions-item>
@@ -222,14 +286,17 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { cancelWorkOrder, getMyOrders } from '../../api/workOrder'
-import { statusText, statusType } from '../../utils/status'
+import { Refresh } from '@element-plus/icons-vue'
+import { batchCancelWorkOrder, cancelWorkOrder, getMyOrders } from '../../api/workOrder'
+import { categoryText, statusText, statusType } from '../../utils/status'
 
 const orders = ref([])
+const selectedRows = ref([])
 const detailDialog = ref(false)
 const currentOrder = ref(null)
+const loading = ref(false)
 
 const page = reactive({
   pageNum: 1,
@@ -241,21 +308,35 @@ const searchForm = reactive({
   orderNo: '',
   title: '',
   location: '',
+  category: '',
   priority: '',
   status: 'PENDING_REVIEW',
   startTime: '',
   endTime: ''
 })
 
-async function loadData() {
-  const res = await getMyOrders({
-    pageNum: page.pageNum,
-    pageSize: page.pageSize,
-    ...searchForm
-  })
+const canBatchCancelStatus = computed(() => {
+  // 只有待审核、待处理的工单允许学生取消。
+  return searchForm.status === 'PENDING_REVIEW' || searchForm.status === 'PENDING_PROCESS'
+})
 
-  orders.value = res.list
-  page.total = res.total
+async function loadData() {
+  if (loading.value) return
+  loading.value = true
+  try {
+    // 学生端只查询当前登录学生自己的工单，归属校验由后端保证。
+    const res = await getMyOrders({
+      pageNum: page.pageNum,
+      pageSize: page.pageSize,
+      ...searchForm
+    })
+
+    orders.value = res.list
+    selectedRows.value = []
+    page.total = res.total
+  } finally {
+    loading.value = false
+  }
 }
 
 function handleSearch() {
@@ -298,6 +379,7 @@ function resetSearch() {
     orderNo: '',
     title: '',
     location: '',
+    category: '',
     priority: '',
     status: 'PENDING_REVIEW',
     startTime: '',
@@ -316,6 +398,38 @@ async function handleCancel(id) {
   await ElMessageBox.confirm('确定取消该工单吗？', '提示')
   await cancelWorkOrder(id)
   ElMessage.success('取消成功')
+  await loadData()
+}
+
+function canSelectOrder(row) {
+  // 批量取消只能选择仍未进入处理中的工单。
+  return row.status === 'PENDING_REVIEW' || row.status === 'PENDING_PROCESS'
+}
+
+function handleSelectionChange(rows) {
+  selectedRows.value = rows.filter(canSelectOrder)
+}
+
+async function handleBatchCancel() {
+  // 批量取消走后端批量接口，后端会再次校验工单归属和状态。
+  const rows = selectedRows.value.filter(canSelectOrder)
+  if (!rows.length) {
+    ElMessage.warning('请选择可取消的工单')
+    return
+  }
+
+  await ElMessageBox.confirm(
+    `确定取消选中的 ${rows.length} 个工单吗？`,
+    '批量取消',
+    {
+      confirmButtonText: '确定取消',
+      cancelButtonText: '取消',
+      type: 'warning'
+    }
+  )
+
+  await batchCancelWorkOrder(rows.map(row => row.id))
+  ElMessage.success(`已取消 ${rows.length} 个工单`)
   await loadData()
 }
 
@@ -419,6 +533,34 @@ onMounted(loadData)
 .table-count {
   color: #909399;
   font-size: 13px;
+}
+
+.table-tools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.batch-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  border: 1px solid #eef2f7;
+  border-radius: 10px;
+  background: #fbfdff;
+}
+
+.batch-tip {
+  margin-right: 4px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.hide-selection-column :deep(.el-table-column--selection .cell) {
+  visibility: hidden;
 }
 
 .detail-text {

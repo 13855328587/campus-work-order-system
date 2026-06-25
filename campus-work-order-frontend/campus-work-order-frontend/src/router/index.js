@@ -9,18 +9,18 @@ const routes = [
     path: '/',
     component: () => import('../layout/MainLayout.vue'),
     children: [
-      { path: 'dashboard', component: () => import('../views/Dashboard.vue') },
+      { path: 'dashboard', component: () => import('../views/Dashboard.vue'), meta: { title: '首页仪表盘', affix: true } },
 
       // 用户信息页面：所有登录用户都可以访问
-      { path: 'profile', component: () => import('../views/Profile.vue') },
+      { path: 'profile', component: () => import('../views/Profile.vue'), meta: { title: '用户信息' } },
 
-      { path: 'student/create-order', component: () => import('../views/student/CreateOrder.vue'), meta: { roles: ['STUDENT'] } },
-      { path: 'student/my-orders', component: () => import('../views/student/MyOrders.vue'), meta: { roles: ['STUDENT'] } },
+      { path: 'student/create-order', component: () => import('../views/student/CreateOrder.vue'), meta: { title: '新建工单', roles: ['STUDENT'] } },
+      { path: 'student/my-orders', component: () => import('../views/student/MyOrders.vue'), meta: { title: '我的工单', roles: ['STUDENT'] } },
 
-      { path: 'admin/orders', component: () => import('../views/admin/OrderManage.vue'), meta: { roles: ['ADMIN', 'SUPER_ADMIN'] } },
-      { path: 'admin/users', component: () => import('../views/admin/UserManage.vue'), meta: { roles: ['ADMIN', 'SUPER_ADMIN'] } },
+      { path: 'admin/orders', component: () => import('../views/admin/OrderManage.vue'), meta: { title: '工单管理', roles: ['ADMIN', 'SUPER_ADMIN'] } },
+      { path: 'admin/users', component: () => import('../views/admin/UserManage.vue'), meta: { title: '用户管理', roles: ['ADMIN', 'SUPER_ADMIN'] } },
 
-      { path: 'worker/tasks', component: () => import('../views/worker/MyTasks.vue'), meta: { roles: ['WORKER'] } }
+      { path: 'worker/tasks', component: () => import('../views/worker/MyTasks.vue'), meta: { title: '我的任务', roles: ['WORKER'] } }
     ]
   }
 ]

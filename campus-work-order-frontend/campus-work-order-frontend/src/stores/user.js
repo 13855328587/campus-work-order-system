@@ -7,6 +7,7 @@ function readAuth(key) {
 }
 
 function clearAuth(storage) {
+  // 登录信息统一清理，避免 localStorage/sessionStorage 残留旧 token。
   authKeys.forEach(key => storage.removeItem(key))
 }
 
@@ -25,6 +26,7 @@ export const useUserStore = defineStore('user', {
 
   actions: {
     setUser(data) {
+      // 登录成功后只保存当前会话；关闭浏览器后需要重新登录。
       this.token = data.token
       this.userId = data.userId
       this.username = data.username
@@ -53,6 +55,16 @@ export const useUserStore = defineStore('user', {
     setAvatarUrl(url) {
       this.avatarUrl = url || ''
       sessionStorage.setItem('avatarUrl', this.avatarUrl)
+    },
+
+    updateBasicInfo(realName, phone, username = this.username) {
+      // 个人资料或管理员修改当前用户后，同步更新本地展示信息。
+      this.username = username || ''
+      this.realName = realName || ''
+      this.phone = phone || ''
+      sessionStorage.setItem('username', this.username)
+      sessionStorage.setItem('realName', this.realName)
+      sessionStorage.setItem('phone', this.phone)
     },
 
     logout() {

@@ -15,7 +15,7 @@ import java.util.Map;
 public interface WorkOrderService {
     WorkOrderVO create(CreateWorkOrderRequest request, String idempotencyKey);
     PageResult<WorkOrderVO> myOrders(int pageNum, int pageSize, String orderNo, String title,
-                                     String location, String priority, String status,
+                                     String location, String category, String priority, String status,
                                      LocalDateTime startTime, LocalDateTime endTime);
 
     List<WorkOrderVO> listAll();
@@ -24,25 +24,31 @@ public interface WorkOrderService {
 
     void approve(Long id);
 
+    void batchApprove(List<Long> ids);
+
     void reject(Long id, RejectWorkOrderRequest request);
 
     void assign(Long id, AssignWorkOrderRequest request);
 
     void accept(Long id);
 
+    void batchAccept(List<Long> ids);
+
     void finish(Long id, FinishWorkOrderRequest request);
 
     void cancel(Long id);
 
+    void batchCancel(List<Long> ids);
+
     Map<String, Long> statistics();
 
     PageResult<WorkOrderVO> workerTasks(int pageNum, int pageSize, String orderNo, String title,
-                                        String location, String priority, String status,
+                                        String location, String category, String priority, String status,
                                         LocalDateTime startTime, LocalDateTime endTime);
 
     List<WorkOrderVO> workerHistory();
 
     PageResult<WorkOrder> pageQuery(int pageNum, int pageSize, String orderNo, String title,
-                                    String location, String priority, String status,
+                                    String location, String category, String priority, String status,
                                     LocalDateTime startTime, LocalDateTime endTime);
 }
