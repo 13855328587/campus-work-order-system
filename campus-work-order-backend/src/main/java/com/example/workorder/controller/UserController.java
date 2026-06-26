@@ -320,6 +320,7 @@ public class UserController {
     }
 
     @PutMapping("/{id}/role")
+    @Transactional
     public Result<Void> updateRole(@PathVariable("id") Long id,
                                    @RequestParam("role") String role) {
         Long currentUserId = SecurityUtils.getUserId();

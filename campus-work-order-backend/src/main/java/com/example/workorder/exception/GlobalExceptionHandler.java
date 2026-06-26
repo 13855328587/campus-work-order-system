@@ -1,11 +1,13 @@
 package com.example.workorder.exception;
 
 import com.example.workorder.common.Result;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+@Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -29,7 +31,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public Result<Void> handleException(Exception e) {
-        e.printStackTrace();
-        return Result.fail(500, "服务器内部错误：" + e.getMessage());
+        log.error("服务器内部错误", e);
+        return Result.fail(500, "服务器内部错误，请联系管理员");
     }
 }

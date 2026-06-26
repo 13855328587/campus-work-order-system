@@ -1,0 +1,4 @@
+interface:
+  display_name: "Work Order Load Test"
+  short_description: "Run and analyze campus work-order load tests"
+  default_prompt: "Use $work-order-load-test to run and analyze the campus work-order load test."
